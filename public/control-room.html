@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProofPay Control Room</title>
+  <link rel="stylesheet" href="/vendor/ag-grid/styles/ag-grid.css">
+  <link rel="stylesheet" href="/vendor/ag-grid/styles/ag-theme-quartz.css">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/control-room.css">
+</head>
+<body>
+  <main class="control-shell">
+    <aside class="rail control-rail" aria-label="Control Room navigation">
+      <div class="brand">
+        <span class="brand-mark">PP</span>
+        <div>
+          <h1>Control Room</h1>
+          <p>Operational view of authorized value, verification status, payment action, and audit trail.</p>
+        </div>
+      </div>
+      <a class="nav-link" href="/">ProofPay Flow</a>
+      <a class="nav-link active-nav" href="/control-room">Control Room</a>
+      <div class="rail-note">
+        <span>Live state source</span>
+        <strong>Local ProofPay transaction</strong>
+      </div>
+    </aside>
+
+    <section class="control-workspace">
+      <header class="control-header">
+        <div>
+          <p class="eyebrow">Sponsor view</p>
+          <h2>ProofPay Control Room</h2>
+          <p class="subcopy">Track the active ProofPay job from authorization through held, verified, captured, or voided states.</p>
+        </div>
+        <div class="refresh-chip" id="refreshChip">Waiting for live state</div>
+      </header>
+
+      <section class="metric-strip" aria-label="Payment summary">
+        <article class="metric-card">
+          <span>Authorized</span>
+          <strong id="authorisedValue">GBP 0.00</strong>
+        </article>
+        <article class="metric-card held-card">
+          <span>Held</span>
+          <strong id="heldValue">GBP 0.00</strong>
+        </article>
+        <article class="metric-card captured-card">
+          <span>Captured</span>
+          <strong id="capturedValue">GBP 0.00</strong>
+        </article>
+        <article class="metric-card voided-card">
+          <span>Voided</span>
+          <strong id="voidedValue">GBP 0.00</strong>
+        </article>
+        <article class="metric-card exception-card">
+          <span>Exceptions</span>
+          <strong id="exceptionCount">0</strong>
+        </article>
+      </section>
+
+      <section class="control-panel">
+        <div class="control-toolbar">
+          <div>
+            <p class="eyebrow">AG Grid</p>
+            <h2>Active jobs</h2>
+          </div>
+          <div class="filter-tools">
+            <input id="quickFilter" type="search" placeholder="Filter jobs">
+            <select id="statusFilter" aria-label="Status filter">
+              <option value="">All states</option>
+              <option value="AUTHORIZED">Authorized</option>
+              <option value="HELD">Held</option>
+              <option value="CAPTURED">Captured</option>
+              <option value="VOIDED">Voided</option>
+            </select>
+            <input id="agentFilter" type="search" placeholder="Try: Show held jobs with failed semantic checks">
+            <button class="secondary-button" id="agentFilterButton" type="button">Apply</button>
+            <button class="ghost-light-button" id="clearFiltersButton" type="button">Clear</button>
+          </div>
+        </div>
+
+        <div id="jobsGrid" class="ag-theme-quartz jobs-grid"></div>
+      </section>
+
+      <section class="audit-layout">
+        <article class="audit-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Selected job audit</p>
+              <h2 id="selectedJobTitle">No job selected</h2>
+            </div>
+          </div>
+          <div id="auditEvents" class="audit-events"></div>
+        </article>
+        <article class="audit-panel detail-card">
+          <p class="eyebrow">Selected row</p>
+          <dl id="selectedDetails" class="details-list"></dl>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <script src="/vendor/ag-grid/dist/ag-grid-community.min.js"></script>
+  <script src="/control-room.js" type="module"></script>
+</body>
+</html>

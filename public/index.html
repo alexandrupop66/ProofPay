@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProofPay</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="rail" aria-label="Workflow">
+      <div class="brand">
+        <span class="brand-mark">PP</span>
+        <div>
+          <h1>ProofPay</h1>
+          <p>AI verifies the work. You authorise the money. PayPal completes the payment.</p>
+        </div>
+      </div>
+      <ol class="steps" id="steps"></ol>
+      <a class="nav-link" href="/control-room">Control Room</a>
+      <button class="ghost-button" id="resetButton" type="button">Reset demo</button>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Current state</p>
+          <div class="state-line">
+            <span class="status-pill" id="statusPill">AUTHORIZATION REQUIRED</span>
+            <span id="paymentNote">Payment has not been authorised.</span>
+          </div>
+        </div>
+        <div class="amount-box">
+          <span>Amount</span>
+          <strong id="amountDisplay">GBP 25.00</strong>
+        </div>
+      </header>
+
+      <section class="panels">
+        <article class="panel agreement-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Agreement</p>
+              <h2>Verdant Volt Coffee campaign</h2>
+            </div>
+            <button class="primary-button" id="authorizeButton" type="button">Authorise with PayPal</button>
+          </div>
+          <label>
+            Job title
+            <input id="jobTitle" type="text">
+          </label>
+          <label>
+            Payment amount
+            <input id="paymentAmount" type="text" inputmode="decimal">
+          </label>
+          <ul class="criteria-list" id="criteriaList"></ul>
+        </article>
+
+        <article class="panel submit-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Deliverable</p>
+              <h2>Supplier submission</h2>
+            </div>
+            <button class="secondary-button" id="verifyButton" type="button">Run verification</button>
+          </div>
+          <div class="demo-buttons">
+            <button type="button" id="failedDemoButton">Load failing demo</button>
+            <button type="button" id="correctedDemoButton">Load corrected demo</button>
+          </div>
+          <label>
+            Upload PNG or JPG
+            <input id="imageInput" type="file" accept="image/png,image/jpeg">
+          </label>
+          <label>
+            Visible text and image evidence
+            <textarea id="visibleText" rows="7"></textarea>
+          </label>
+          <label>
+            Supplier notes
+            <textarea id="supplierNotes" rows="3"></textarea>
+          </label>
+          <div class="preview-frame">
+            <img id="previewImage" alt="Submitted creative preview">
+          </div>
+          <button class="primary-button wide-button" id="submitButton" type="button">Submit deliverable</button>
+        </article>
+      </section>
+
+      <section class="verification-strip">
+        <article class="panel verification-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Verification</p>
+              <h2>Deterministic checks</h2>
+            </div>
+          </div>
+          <div id="deterministicChecks" class="check-grid"></div>
+        </article>
+        <article class="panel verification-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">AI semantic checks</p>
+              <h2>Cited result</h2>
+            </div>
+          </div>
+          <div id="aiChecks" class="check-grid"></div>
+        </article>
+      </section>
+
+      <section class="panel action-panel">
+        <div>
+          <p class="eyebrow">Human approval</p>
+          <h2 id="approvalHeading">Verification required before payment capture</h2>
+          <p id="approvalCopy">ProofPay can only capture after all checks pass and the buyer explicitly approves.</p>
+        </div>
+        <div class="action-buttons">
+          <button class="primary-button" id="captureButton" type="button">Approve & Pay</button>
+          <button class="danger-button" id="voidButton" type="button">Reject & Void</button>
+        </div>
+      </section>
+
+      <section class="panel event-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Live trail</p>
+            <h2>Payment and verification events</h2>
+          </div>
+        </div>
+        <div id="events" class="events"></div>
+      </section>
+    </section>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
