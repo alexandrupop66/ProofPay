@@ -1,11 +1,38 @@
 import { config } from "./config.js";
 
-const semanticCriteria = [
+export const semanticCriteria = [
   "Prominently mentions sustainability",
   "Uses a professional promotional tone",
   "Includes the exact slogan: Brew Better. Waste Less.",
   "Does not contain or promote disposable plastic cups"
 ];
+
+export function validateSemanticVerification(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+      !["PASS", "FAIL"].includes(parsed.overallStatus) ||
+      typeof parsed.summary !== "string" || !parsed.summary.trim() ||
+      !Array.isArray(parsed.checks) || parsed.checks.length !== semanticCriteria.length) {
+    throw new Error("OpenAI verification returned invalid JSON.");
+  }
+
+  const seen = new Set();
+  for (const check of parsed.checks) {
+    if (!check || typeof check !== "object" || Array.isArray(check) ||
+        !semanticCriteria.includes(check.criterion) || seen.has(check.criterion) ||
+        !["PASS", "FAIL"].includes(check.status) ||
+        typeof check.reasoning !== "string" || !check.reasoning.trim() ||
+        typeof check.evidence !== "string" || !check.evidence.trim()) {
+      throw new Error("OpenAI verification returned invalid or mismatched criteria.");
+    }
+    seen.add(check.criterion);
+  }
+
+  if (semanticCriteria.some((criterion) => !seen.has(criterion)) ||
+      (parsed.overallStatus === "PASS") !== parsed.checks.every((check) => check.status === "PASS")) {
+    throw new Error("OpenAI verification returned inconsistent criteria.");
+  }
+  return parsed;
+}
 
 export function decodeImageDataUrl(dataUrl) {
   const match = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl || "");
@@ -139,7 +166,7 @@ export async function runAiVerification(submission, agreement) {
                   additionalProperties: false,
                   required: ["criterion", "status", "reasoning", "evidence"],
                   properties: {
-                    criterion: { type: "string" },
+                    criterion: { type: "string", enum: semanticCriteria },
                     status: { type: "string", enum: ["PASS", "FAIL"] },
                     reasoning: { type: "string" },
                     evidence: { type: "string" }
@@ -171,14 +198,7 @@ export async function runAiVerification(submission, agreement) {
     .find((content) => content.type === "output_text")?.text;
   if (!text) throw new Error("OpenAI verification did not return structured text.");
 
-  const parsed = JSON.parse(text);
-  if (!Array.isArray(parsed.checks) || parsed.checks.length !== semanticCriteria.length ||
-      !["PASS", "FAIL"].includes(parsed.overallStatus) || typeof parsed.summary !== "string" ||
-      parsed.checks.some((check) => !["PASS", "FAIL"].includes(check.status) ||
-        !String(check.criterion || "").trim() || !String(check.reasoning || "").trim() ||
-        !String(check.evidence || "").trim())) {
-    throw new Error("OpenAI verification returned invalid JSON.");
-  }
+  const parsed = validateSemanticVerification(JSON.parse(text));
 
   return {
     checks: parsed.checks,

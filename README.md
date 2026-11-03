@@ -76,7 +76,7 @@ AI semantic checks confirm:
 - The exact slogan `Brew Better. Waste Less.` is present.
 - The creative does not contain or promote disposable plastic cups.
 
-The OpenAI call requests strict JSON output. ProofPay safely parses the model response into criterion, pass/fail status, reasoning, and evidence. Malformed AI output, failed API calls, or failed criteria leave the payment authorized but not captured.
+The OpenAI call requests strict JSON output. ProofPay requires each of the four predefined semantic criteria exactly once, with a valid pass/fail status and non-empty reasoning and evidence. Missing, duplicate, substituted, inconsistent or malformed criteria, failed API calls, and failed criteria leave the payment authorised but not captured.
 
 ## Human-In-The-Loop Safety
 
@@ -226,7 +226,7 @@ That file is generated at runtime and ignored by Git.
 - A random, HttpOnly, SameSite=Lax session cookie and per-session CSRF token protect changes from cross-site requests; login attempts are rate limited.
 - PayPal buyer approval still occurs through PayPal Sandbox. The signed-in operator must separately click **Approve & Pay** to request capture.
 - All state mutations are serialised in one Node process. Reset cannot discard an active authorisation; a failed or uncertain capture remains **CAPTURING** pending manual PayPal reconciliation.
-- Only a verified, correctly matched `PAYMENT.CAPTURE.COMPLETED` webhook can set **CAPTURED**. No configured webhook ID, a bad signature, duplicate, or an unexpected event cannot confirm capture.
+- Only a verified `PAYMENT.CAPTURE.COMPLETED` webhook correlated to the current capture (when already known), authorisation, order, amount and currency can set **CAPTURED**. This also provides fail-closed recovery when PayPal completed capture but the API response timed out before the capture ID was stored. No configured webhook ID, a bad signature, an unmatched event or an unexpected event can confirm capture; duplicates are idempotent.
 - Sensitive PayPal identifiers, callback nonces, uploaded image data and secrets are not exposed by state or Control Room APIs. `.env` is ignored by Git.
 - The server binds to `127.0.0.1` for local use. An HTTPS tunnel is needed only when actively receiving real Sandbox webhooks. Do **not** publish the local tunnel as a judge login link.
 

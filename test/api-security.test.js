@@ -16,6 +16,7 @@ process.env.APP_BASE_URL = "http://localhost:3000";
 
 const { createApp } = await import("../src/app.js");
 const { config } = await import("../src/config.js");
+const { loadState, saveState } = await import("../src/state.js");
 const realFetch = globalThis.fetch;
 const provider = {
   order: null,
@@ -23,9 +24,10 @@ const provider = {
   captures: 0,
   voids: 0,
   failCapture: false,
+  timeoutAfterCapture: false,
   failVoid: false,
   failAi: false,
-  incompleteAi: false
+  aiMode: "valid"
 };
 
 function jsonResponse(status, body) {
@@ -49,11 +51,14 @@ globalThis.fetch = async (input, init = {}) => {
       criterion, status: failing && i === 3 ? "FAIL" : "PASS",
       reasoning: "Mocked semantic review", evidence: "Mocked test evidence"
     }));
+    if (provider.aiMode === "duplicate") checks[3].criterion = checks[0].criterion;
+    if (provider.aiMode === "substituted") checks[3].criterion = "Looks visually attractive";
+    if (provider.aiMode === "malformed") checks[2].reasoning = "";
     return jsonResponse(200, {
       output: [{ content: [{ type: "output_text", text: JSON.stringify({
         overallStatus: failing ? "FAIL" : "PASS",
         summary: failing ? "The creative violates the brief." : "The creative meets the brief.",
-        checks: provider.incompleteAi ? checks.slice(0, 2) : checks
+        checks: provider.aiMode === "missing" ? checks.slice(0, 3) : checks
       }) }] }]
     });
   }
@@ -87,6 +92,7 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if (url.pathname.endsWith("/capture")) {
     provider.captures += 1;
+    if (provider.timeoutAfterCapture) throw new Error("Simulated timeout after provider completed capture");
     if (provider.failCapture) return jsonResponse(500, { error: "Simulated upstream capture failure" });
     const amount = JSON.parse(init.body).amount;
     assert.ok(init.headers["PayPal-Request-Id"], "Server must send a stable idempotency request ID");
@@ -173,8 +179,17 @@ test("real Express routes enforce payment security and preserve the demo journey
     return verified.data;
   }
 
-  function webhook(id, resourceId, signature = "valid", eventType = "PAYMENT.CAPTURE.COMPLETED", headersEnabled = true) {
-    const event = { id, event_type: eventType, resource: { id: resourceId } };
+  function webhook(id, resourceId, signature = "valid", eventType = "PAYMENT.CAPTURE.COMPLETED", headersEnabled = true, overrides = {}) {
+    const event = { id, event_type: eventType, resource: {
+      id: resourceId,
+      status: "COMPLETED",
+      amount: { currency_code: "GBP", value: "25.00" },
+      supplementary_data: { related_ids: {
+        authorization_id: `AUTH-${provider.order?.id}`,
+        order_id: provider.order?.id
+      } },
+      ...overrides
+    } };
     const headers = { "Content-Type": "application/json" };
     if (headersEnabled) Object.assign(headers, {
       "paypal-transmission-id": `TRANSMISSION-${id}`,
@@ -251,10 +266,33 @@ test("real Express routes enforce payment security and preserve the demo journey
       visibleText: contentFor(true), notes: "Corrected creative."
     });
     assert.equal(incomplete.status, 200);
-    provider.incompleteAi = true;
+    provider.aiMode = "missing";
     assert.equal((await post("/api/verify")).status, 500);
-    provider.incompleteAi = false;
+    provider.aiMode = "valid";
     assert.equal((await state()).status, "PAYMENT_HELD");
+  });
+
+  await t.test("duplicate, substituted and malformed AI criteria cannot unlock capture", async () => {
+    for (const mode of ["duplicate", "substituted", "malformed"]) {
+      const submitted = await post("/api/submission", {
+        fileName: `${mode}.png`, imageDataUrl: fakePngDataUrl(),
+        visibleText: contentFor(true), notes: "Corrected creative."
+      });
+      assert.equal(submitted.status, 200);
+      provider.aiMode = mode;
+      assert.equal((await post("/api/verify")).status, 500);
+      provider.aiMode = "valid";
+      assert.equal((await state()).status, "PAYMENT_HELD");
+      assert.equal((await post("/api/paypal/capture", { approve: true })).status, 409);
+    }
+
+    const valid = await submitAndVerify(true);
+    assert.equal(valid.status, "VERIFIED");
+    const tampered = await loadState();
+    tampered.verification.ai[3].criterion = tampered.verification.ai[0].criterion;
+    await saveState(tampered);
+    assert.equal((await post("/api/paypal/capture", { approve: true })).status, 409,
+      "The capture guard must independently reject persisted duplicate criteria");
   });
 
   await t.test("corrected creative requires explicit approval; only verified matching webhook captures", async () => {
@@ -300,7 +338,7 @@ test("real Express routes enforce payment security and preserve the demo journey
     const eventCount = captured.events.length;
     assert.equal((await webhook("FINAL", captureId)).status, 200);
     assert.equal((await state()).events.length, eventCount);
-    assert.equal((await webhook("REPLAY-OTHER-ID", captureId)).status, 202);
+    assert.equal((await webhook("REPLAY-OTHER-ID", captureId)).status, 200);
     assert.equal((await state()).status, "CAPTURED");
     assert.equal((await post("/api/paypal/void")).status, 409);
     assert.equal((await request("/api/control-room")).data.cards.captured, 25);
@@ -319,20 +357,34 @@ test("real Express routes enforce payment security and preserve the demo journey
     assert.equal((await request("/api/control-room")).data.cards.voided, 25);
   });
 
-  await t.test("failed capture remains unresolved; cannot be retried, voided or reset blindly", async () => {
+  await t.test("provider-success capture timeout recovers only from fully correlated verified evidence", async () => {
     assert.equal((await post("/api/reset")).status, 200);
     await authorise();
     const corrected = await submitAndVerify(true);
     assert.equal(corrected.status, "VERIFIED");
-    provider.failCapture = true;
+    provider.timeoutAfterCapture = true;
     assert.equal((await post("/api/paypal/capture", { approve: true })).status, 502);
-    provider.failCapture = false;
+    provider.timeoutAfterCapture = false;
     assert.equal((await state()).status, "CAPTURING");
     assert.equal((await state()).paypal.captureId, false);
+    assert.equal((await state()).paypal.captureOutcome, "UNCERTAIN");
     assert.equal((await post("/api/paypal/capture", { approve: true })).status, 409);
     assert.equal((await post("/api/paypal/void")).status, 409);
     assert.equal((await post("/api/reset")).status, 409);
-    assert.equal((await webhook("UNKNOWN-CAPTURE", "CAPTURE-ANY")).status, 202);
+    const completedCapture = `CAPTURE-${provider.captures}`;
+    assert.equal((await webhook("MISMATCHED-ORDER", completedCapture, "valid", "PAYMENT.CAPTURE.COMPLETED", true, {
+      supplementary_data: { related_ids: { authorization_id: `AUTH-${provider.order.id}`, order_id: "OTHER-ORDER" } }
+    })).status, 202);
+    assert.equal((await webhook("INVALID-AMOUNT", completedCapture, "valid", "PAYMENT.CAPTURE.COMPLETED", true, {
+      amount: { currency_code: "GBP", value: "250.00" }
+    })).status, 202);
     assert.notEqual((await state()).status, "CAPTURED");
+    assert.equal((await webhook("RECOVERY", completedCapture)).status, 200);
+    assert.equal((await state()).status, "CAPTURED");
+    assert.equal((await state()).paypal.captureOutcome, "CONFIRMED");
+    assert.equal((await webhook("RECOVERY", completedCapture)).status, 200);
+    assert.equal((await webhook("DELAYED-DUPLICATE", completedCapture)).status, 200);
+    assert.equal((await post("/api/paypal/capture", { approve: true })).status, 409);
+    assert.equal((await post("/api/paypal/void")).status, 409);
   });
 });

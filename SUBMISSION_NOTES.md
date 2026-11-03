@@ -95,6 +95,7 @@ The Control Room makes the live payment state auditable for judges, operators, a
 
 - The **existing** Devpost entry and its **1 minute 5 second** video remain unchanged. This repository branch is a proposed security hardening update, not proof that the previously submitted version contains these fixes.
 - Judges can run `npm ci` and `npm test` locally without keys, a payment or paid AI calls. Provider responses in automated tests are **mocked**; the application routes, verification decisions, state file and guards are real code under test.
+- The mocked regression suite includes capture-timeout recovery and adversarial webhook/AI-response cases. It does not prove real PayPal delivery timing, PayPal API payload compatibility or real OpenAI output behaviour; those still require a fresh Sandbox integration run.
 - A fresh **real integration** run requires each evaluator's independent PayPal Sandbox app/client credentials, Sandbox buyer account, OpenAI API key, a temporary HTTPS webhook tunnel, their own `PAYPAL_WEBHOOK_ID`, and a local `PROOFPAY_ACCESS_PASSWORD`. No developer secrets are shared.
 - Missing or invalid webhook verification never confirms capture. The local operator password controls access to state and payment actions but is not equivalent to production-grade identity and role management.
 - The AG Grid Control Room still reports the underlying transaction state, with PayPal IDs and private webhook data withheld from public API responses.

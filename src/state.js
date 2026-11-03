@@ -47,7 +47,9 @@ export function freshState() {
       voidedAt: null,
       webhookConfirmedAt: null,
       webhookVerified: false,
-      lastWebhookEventId: null
+      lastWebhookEventId: null,
+      processedWebhookEventIds: [],
+      captureOutcome: "NONE"
     },
     submission: null,
     verification: {
@@ -131,7 +133,8 @@ export function publicState(state) {
       capturedAt: state.paypal?.capturedAt || null,
       voidedAt: state.paypal?.voidedAt || null,
       webhookConfirmedAt: state.paypal?.webhookConfirmedAt || null,
-      webhookVerified: Boolean(state.paypal?.webhookVerified)
+      webhookVerified: Boolean(state.paypal?.webhookVerified),
+      captureOutcome: state.paypal?.captureOutcome || "NONE"
     },
     submission: state.submission
       ? { fileName: state.submission.fileName, submittedAt: state.submission.submittedAt }

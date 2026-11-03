@@ -116,11 +116,13 @@ Then restart ProofPay and run a fresh authorization. Do not try to void or reuse
 
 ### AI Response Failure
 
-If verification fails because the AI API is unavailable, keep it simple: reset, confirm `npm run check`, and rerun the same demo. Do not change prompts or product behavior during filming.
+If verification fails because the AI API is unavailable, the payment remains authorised and held. Do **not** reset while that authorisation is active. Either wait and resubmit/re-run verification against the same active authorisation, or use **Reject & Void** and wait for PayPal to confirm the void before resetting. Confirm `npm run check` before a fresh demo. Do not change prompts or product behaviour during filming.
 
 ### Capture API Error or Timeout
 
 If capture was requested but its outcome is uncertain, ProofPay intentionally remains **CAPTURING** and blocks retries, voids and resets. Inspect the PayPal Sandbox transaction before making any financial decision; do not assume that the lack of webhook means funds were not captured.
+
+A delayed, verified `PAYMENT.CAPTURE.COMPLETED` webhook can safely recover this state only when its capture, authorisation, order, amount and currency correlate to the current transaction. Unmatched or malformed events never settle the local transaction.
 
 ### Webhook Delay
 

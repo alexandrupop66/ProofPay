@@ -5,7 +5,7 @@ import path from "path";
 import { config, missingConfig, safeError } from "./config.js";
 import { addEvent, loadState, publicState, resetState, saveState, withStateLock } from "./state.js";
 import { authorizeOrder, captureAuthorization, createAuthorizeOrder, verifyWebhookSignature, voidAuthorization } from "./paypal.js";
-import { runAiVerification, runDeterministicChecks } from "./verification.js";
+import { runAiVerification, runDeterministicChecks, semanticCriteria } from "./verification.js";
 import { buildControlRoomPayload } from "./controlRoom.js";
 
 export function createApp() {
@@ -65,7 +65,9 @@ export function createApp() {
           capturedAt: null,
           voidedAt: null,
           webhookConfirmedAt: null,
-          webhookVerified: false
+          webhookVerified: false,
+          processedWebhookEventIds: [],
+          captureOutcome: "NONE"
         }
       }, "PayPal authorisation order created", { orderId: order.orderId }));
 
@@ -218,8 +220,7 @@ export function createApp() {
         state.verification.overall !== "PASS" ||
         state.verification.deterministic?.length !== 3 ||
         !state.verification.deterministic.every((check) => check.status === "PASS") ||
-        state.verification.ai?.length !== 4 ||
-        !state.verification.ai.every((check) => check.status === "PASS") ||
+        !hasExactPassingAiCriteria(state.verification.ai) ||
         state.status !== "VERIFIED") {
         return res.status(409).json({ error: "Capture is blocked until verification passes and the buyer approves." });
       }
@@ -227,7 +228,7 @@ export function createApp() {
       state = await saveState(addEvent({
         ...state,
         status: "CAPTURING",
-        paypal: { ...state.paypal, captureRequestId: crypto.randomUUID() }
+        paypal: { ...state.paypal, captureRequestId: crypto.randomUUID(), captureOutcome: "PENDING" }
       }, "Buyer clicked Approve & Pay"));
       const capture = await captureAuthorization({
         authorizationId: state.paypal.authorizationId,
@@ -240,14 +241,18 @@ export function createApp() {
         ...state,
         paypal: {
           ...state.paypal,
-          captureId: capture.captureId
+          captureId: capture.captureId,
+          captureOutcome: "ACKNOWLEDGED"
         }
       }, "PayPal capture submitted, awaiting verified webhook", { paypalStatus: capture.paypalStatus }));
       res.json(publicState(nextState));
     } catch (error) {
       // The provider may have processed a timed-out capture. Never retry automatically or reopen approval.
       if (state.status === "CAPTURING") {
-        await saveState(addEvent(state, "Capture outcome uncertain; reconcile in PayPal Sandbox", { error: safeError(error) }));
+        await saveState(addEvent({
+          ...state,
+          paypal: { ...state.paypal, captureOutcome: "UNCERTAIN" }
+        }, "Capture outcome uncertain; reconcile in PayPal Sandbox", { error: safeError(error) }));
       }
       res.status(502).json({ error: "Capture was not confirmed. Check PayPal Sandbox before taking another action." });
     }
@@ -337,13 +342,22 @@ async function handlePaypalWebhook(req, res) {
         return res.sendStatus(verification.configured ? 401 : 503);
       }
 
-      if (event.id === state.paypal.lastWebhookEventId) {
+      const processedIds = state.paypal.processedWebhookEventIds ||
+        (state.paypal.lastWebhookEventId ? [state.paypal.lastWebhookEventId] : []);
+      if (processedIds.includes(event.id)) {
         return res.sendStatus(200); // Idempotent duplicate, no state transition.
       }
 
+      const resource = event.resource;
+      const related = resource?.supplementary_data?.related_ids;
       const matches = event.event_type === "PAYMENT.CAPTURE.COMPLETED" &&
-        state.status === "CAPTURING" && Boolean(state.paypal.captureId) &&
-        event.resource?.id === state.paypal.captureId;
+        ["CAPTURING", "CAPTURED"].includes(state.status) &&
+        resource?.status === "COMPLETED" && typeof resource?.id === "string" && Boolean(resource.id) &&
+        (!state.paypal.captureId || resource.id === state.paypal.captureId) &&
+        related?.authorization_id === state.paypal.authorizationId &&
+        related?.order_id === state.paypal.orderId &&
+        resource.amount?.currency_code === state.agreement.currency &&
+        resource.amount?.value === state.agreement.amount;
 
       if (!matches) {
         await saveState(addEvent(state, "Verified PayPal webhook ignored (unexpected state or capture)", {
@@ -352,15 +366,22 @@ async function handlePaypalWebhook(req, res) {
         return res.sendStatus(202);
       }
 
+      if (state.status === "CAPTURED") {
+        return res.sendStatus(200); // A delayed duplicate completion cannot change settled state.
+      }
+
       const nextState = {
         ...state,
         status: "CAPTURED",
         paypal: {
           ...state.paypal,
+          captureId: resource.id,
           capturedAt: new Date().toISOString(),
           webhookConfirmedAt: new Date().toISOString(),
           webhookVerified: true,
-          lastWebhookEventId: event.id
+          lastWebhookEventId: event.id,
+          processedWebhookEventIds: [...processedIds, event.id].slice(-50),
+          captureOutcome: "CONFIRMED"
         }
       };
       await saveState(addEvent(nextState, "PayPal capture confirmed by verified webhook", {
@@ -372,4 +393,16 @@ async function handlePaypalWebhook(req, res) {
     // PayPal can retry failed deliveries; an outage is never evidence of capture.
     return res.sendStatus(503);
   }
+}
+
+function hasExactPassingAiCriteria(checks) {
+  if (!Array.isArray(checks) || checks.length !== semanticCriteria.length) return false;
+  const seen = new Set();
+  return checks.every((check) => {
+    if (!check || check.status !== "PASS" || !semanticCriteria.includes(check.criterion) ||
+        seen.has(check.criterion) || !String(check.reasoning || "").trim() ||
+        !String(check.evidence || "").trim()) return false;
+    seen.add(check.criterion);
+    return true;
+  }) && semanticCriteria.every((criterion) => seen.has(criterion));
 }
