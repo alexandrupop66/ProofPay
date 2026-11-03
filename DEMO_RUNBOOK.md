@@ -2,61 +2,46 @@
 
 Use this sequence to record one clean live demo. Keep credentials and `.env` off screen.
 
-## Preflight
+## Judge Preflight (Own Test Credentials)
 
-1. Open PowerShell in:
+**No payment or AI credentials are necessary to run automated tests.** Run `npm ci` then `npm test` to exercise the actual Express routes using mocked PayPal and OpenAI responses.
 
-```powershell
-cd C:\Users\alexa\Desktop\ProofPay
-```
+For the optional **real Sandbox** end-to-end walkthrough, do the following on the judge's own computer. This calls PayPal Sandbox and OpenAI and must be initiated deliberately; it is not part of automated testing.
 
-2. Confirm local configuration without printing secrets:
-
-```powershell
-npm run check
-```
-
-3. Start ProofPay:
+1. Install Node.js 22+, obtain a **PayPal Sandbox REST app** (Client ID and Secret), a separate PayPal Sandbox personal buyer account, and an **OpenAI API key** belonging to the evaluator. Never use or request the developer's credentials.
+2. In PowerShell, open the cloned ProofPay folder and install locked dependencies:
 
 ```powershell
-npm start
+npm ci
+Copy-Item .env.example .env
+notepad .env
 ```
 
-Expected:
-
-```text
-ProofPay listening at http://localhost:3000
-```
-
-4. In a second terminal, start a Cloudflare tunnel to localhost:
+3. Set `PAYPAL_ENV=sandbox`, the judge's `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `OPENAI_API_KEY`, `APP_BASE_URL=http://localhost:3000`, and a **unique random** `PROOFPAY_ACCESS_PASSWORD` (at least 16 characters). Keep `.env` private.
+4. Start a temporary HTTPS tunnel to the local port in a separate terminal, for example:
 
 ```powershell
-cloudflared tunnel --url http://localhost:3000
+cloudflared tunnel --url http://127.0.0.1:3000
 ```
 
-5. Copy the new public HTTPS tunnel origin only, with no trailing slash.
-
-6. Update local `.env`:
-
-```dotenv
-PAYPAL_WEBHOOK_URL=https://your-current-public-tunnel
-```
-
-7. Create or update the PayPal Sandbox webhook subscription:
+5. Set `PAYPAL_WEBHOOK_URL` to its public HTTPS origin without trailing slash. Create a **Sandbox** webhook subscription for `PAYMENT.CAPTURE.COMPLETED` on the judge's own REST app:
 
 ```powershell
 npm run webhook:create
 ```
 
-8. Save the returned non-secret `PAYPAL_WEBHOOK_ID` in `.env`.
-
-9. Restart the ProofPay server so the new `.env` values are loaded.
-
-10. Confirm setup:
+6. Copy the returned **webhook ID only** into the private `.env` as `PAYPAL_WEBHOOK_ID`. The script creates a remote subscription; do not rerun it unnecessarily. A missing or placeholder ID disables capture confirmation.
+7. Check the environment, then start ProofPay:
 
 ```powershell
 npm run check
+npm start
 ```
+
+8. Visit `http://localhost:3000/login.html`, enter the locally configured demo access password, and continue to `http://localhost:3000`. Use that browser session throughout the PayPal return flow.
+9. Keep the tunnel private except for PayPal webhook delivery. The local app binds to `127.0.0.1`; judges should **not** visit the tunnel address or enter passwords through a shared developer instance.
+
+The already submitted video is **1 minute 5 seconds**, within the three-minute limit. No new video or Devpost edit is part of this hardening.
 
 ## Browser Tabs
 
@@ -67,12 +52,12 @@ Prepare these tabs before recording:
 - PayPal Sandbox buyer login page or approval popup when opened
 - PayPal Developer dashboard webhook page, only if needed for troubleshooting
 
-Keep `.env`, terminal output with local paths, and account credentials off screen during the recording.
+Keep `.env`, terminal output with local paths, and account credentials off screen during the recording. The buyer must remain signed in to ProofPay for **Approve & Pay** to work.
 
 ## Clean Recording Sequence
 
 1. Open `http://localhost:3000`.
-2. Click **Reset demo**.
+2. Click **Reset demo** only when no active PayPal authorisation exists, or after the previous transaction is **CAPTURED** or **VOIDED**.
 3. Confirm the main state is **AUTHORIZATION REQUIRED** and amount is GBP 25.00.
 4. Click **Authorise with PayPal**.
 5. Log in as the PayPal Sandbox buyer.
@@ -132,6 +117,10 @@ Then restart ProofPay and run a fresh authorization. Do not try to void or reuse
 ### AI Response Failure
 
 If verification fails because the AI API is unavailable, keep it simple: reset, confirm `npm run check`, and rerun the same demo. Do not change prompts or product behavior during filming.
+
+### Capture API Error or Timeout
+
+If capture was requested but its outcome is uncertain, ProofPay intentionally remains **CAPTURING** and blocks retries, voids and resets. Inspect the PayPal Sandbox transaction before making any financial decision; do not assume that the lack of webhook means funds were not captured.
 
 ### Webhook Delay
 
