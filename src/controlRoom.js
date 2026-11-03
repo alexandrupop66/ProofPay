@@ -16,8 +16,8 @@ function paymentState(state) {
   if (state.status === "CAPTURED") return "CAPTURED";
   if (state.status === "CAPTURING") return "CAPTURING";
   if (state.status === "PAYMENT_HELD") return "HELD";
-  if (state.paypal?.authorizationId) return "AUTHORIZED";
-  if (state.paypal?.orderId) return "AUTHORIZATION REQUIRED";
+  if (state.paypal?.authorizationId) return "AUTHORISED";
+  if (state.paypal?.orderId) return "AUTHORISATION REQUIRED";
   return "NOT STARTED";
 }
 
@@ -25,7 +25,7 @@ function captureVoidState(state) {
   if (state.paypal?.voidedAt || state.status === "VOIDED") return "VOIDED";
   if (state.paypal?.webhookConfirmedAt || state.status === "CAPTURED") return "CAPTURED";
   if (state.paypal?.captureId || state.status === "CAPTURING") return "CAPTURE REQUESTED";
-  if (state.paypal?.authorizationId) return "UNCAPTURED AUTHORIZATION";
+  if (state.paypal?.authorizationId) return "UNCAPTURED AUTHORISATION";
   return "NONE";
 }
 
