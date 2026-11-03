@@ -90,3 +90,13 @@ Useful grid behavior includes:
 - A narrow natural-language filter: "Show held jobs with failed semantic checks."
 
 The Control Room makes the live payment state auditable for judges, operators, and sponsors.
+
+## Judging Access And Security Hardening Addendum (03/11/2026)
+
+- The **existing** Devpost entry and its **1 minute 5 second** video remain unchanged. This repository branch is a proposed security hardening update, not proof that the previously submitted version contains these fixes.
+- Judges can run `npm ci` and `npm test` locally without keys, a payment or paid AI calls. Provider responses in automated tests are **mocked**; the application routes, verification decisions, state file and guards are real code under test.
+- A fresh **real integration** run requires each evaluator's independent PayPal Sandbox app/client credentials, Sandbox buyer account, OpenAI API key, a temporary HTTPS webhook tunnel, their own `PAYPAL_WEBHOOK_ID`, and a local `PROOFPAY_ACCESS_PASSWORD`. No developer secrets are shared.
+- Missing or invalid webhook verification never confirms capture. The local operator password controls access to state and payment actions but is not equivalent to production-grade identity and role management.
+- The AG Grid Control Room still reports the underlying transaction state, with PayPal IDs and private webhook data withheld from public API responses.
+- This README/runbook route is the preferred judge experience. An optional non-financial explanation may reference the existing video, but must not claim to be a live PayPal event.
+- **Submission readiness must be assessed against final test results and an optional fresh real integration check.** Do not claim that the uploaded video was rerecorded after hardening.
