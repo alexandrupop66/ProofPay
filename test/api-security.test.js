@@ -24,7 +24,8 @@ const provider = {
   voids: 0,
   failCapture: false,
   failVoid: false,
-  failAi: false
+  failAi: false,
+  incompleteAi: false
 };
 
 function jsonResponse(status, body) {
@@ -52,7 +53,7 @@ globalThis.fetch = async (input, init = {}) => {
       output: [{ content: [{ type: "output_text", text: JSON.stringify({
         overallStatus: failing ? "FAIL" : "PASS",
         summary: failing ? "The creative violates the brief." : "The creative meets the brief.",
-        checks
+        checks: provider.incompleteAi ? checks.slice(0, 2) : checks
       }) }] }]
     });
   }
@@ -193,6 +194,10 @@ test("real Express routes enforce payment security and preserve the demo journey
       assert.equal((await post(endpoint, { approve: true }, { auth: false })).status, 401);
     }
     assert.equal((await post("/api/login", { password: "incorrect" }, { auth: false })).status, 401);
+    const originalPassword = config.accessPassword;
+    config.accessPassword = "replace-with-your-own-long-random-password";
+    assert.equal((await post("/api/login", { password: config.accessPassword }, { auth: false })).status, 503);
+    config.accessPassword = originalPassword;
     const login = await post("/api/login", { password: process.env.PROOFPAY_ACCESS_PASSWORD }, { auth: false });
     assert.equal(login.status, 200);
     cookie = login.headers.get("set-cookie").split(";")[0];
@@ -241,6 +246,15 @@ test("real Express routes enforce payment security and preserve the demo journey
     assert.equal((await state()).status, "PAYMENT_HELD");
     provider.failAi = false;
     assert.equal((await post("/api/paypal/capture", { approve: true })).status, 409);
+    const incomplete = await post("/api/submission", {
+      fileName: "creative.png", imageDataUrl: fakePngDataUrl(),
+      visibleText: contentFor(true), notes: "Corrected creative."
+    });
+    assert.equal(incomplete.status, 200);
+    provider.incompleteAi = true;
+    assert.equal((await post("/api/verify")).status, 500);
+    provider.incompleteAi = false;
+    assert.equal((await state()).status, "PAYMENT_HELD");
   });
 
   await t.test("corrected creative requires explicit approval; only verified matching webhook captures", async () => {
@@ -251,7 +265,11 @@ test("real Express routes enforce payment security and preserve the demo journey
     assert.equal((await webhook("EARLY", "CAPTURE-1")).status, 202);
     assert.equal((await state()).status, "VERIFIED");
 
-    assert.equal((await post("/api/paypal/capture", { approve: true })).status, 200);
+    const competing = await Promise.all([
+      post("/api/paypal/capture", { approve: true }),
+      post("/api/paypal/capture", { approve: true })
+    ]);
+    assert.deepEqual(competing.map((result) => result.status).sort(), [200, 409]);
     assert.equal(provider.captures, 1);
     assert.equal((await state()).status, "CAPTURING");
     assert.equal((await post("/api/paypal/capture", { approve: true })).status, 409);
@@ -260,6 +278,9 @@ test("real Express routes enforce payment security and preserve the demo journey
     assert.equal((await post("/api/verify")).status, 409);
     assert.equal((await post("/api/reset")).status, 409);
 
+    assert.equal((await realFetch(origin + "/webhooks/paypal", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{bad-json"
+    })).status, 400);
     const captureId = `CAPTURE-${provider.captures}`;
     const previousConfig = config.paypalWebhookId;
     config.paypalWebhookId = "";
