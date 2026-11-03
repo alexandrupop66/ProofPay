@@ -35,7 +35,7 @@ function getSession(req) {
 }
 
 function passwordMatches(supplied) {
-  if (typeof supplied !== "string" || !config.accessPassword || config.accessPassword.length < 16) return false;
+  if (typeof supplied !== "string" || !config.accessPassword || config.accessPassword.length < 16 || config.accessPassword.startsWith("replace-with")) return false;
   const expected = crypto.createHash("sha256").update(config.accessPassword).digest();
   const actual = crypto.createHash("sha256").update(supplied).digest();
   return crypto.timingSafeEqual(expected, actual);
