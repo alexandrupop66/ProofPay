@@ -1,0 +1,32 @@
+name: ProofPay security regression
+
+on:
+  push:
+    branches:
+      - security/proofpay-hardening-2026-11-03
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies (no scripts)
+        run: npm ci --ignore-scripts
+      - name: Dependency security audit
+        run: npm audit --omit=dev
+      - name: Check JavaScript syntax
+        run: |
+          for file in server.js src/*.js public/*.js test/*.js; do
+            node --check "$file"
+          done
+      - name: Full automated test suite (mocked providers, no credentials)
+        run: npm test

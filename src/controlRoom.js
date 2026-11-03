@@ -1,3 +1,5 @@
+import { publicEventDetails } from "./state.js";
+
 function resultFromChecks(checks = []) {
   if (!checks.length) return "NOT RUN";
   return checks.every((check) => check.status === "PASS") ? "PASS" : "FAIL";
@@ -13,9 +15,10 @@ function paymentState(state) {
   if (state.status === "VOIDED") return "VOIDED";
   if (state.status === "CAPTURED") return "CAPTURED";
   if (state.status === "CAPTURING") return "CAPTURING";
+  if (state.status === "AUTHORIZING") return "AUTHORISING";
   if (state.status === "PAYMENT_HELD") return "HELD";
-  if (state.paypal?.authorizationId) return "AUTHORIZED";
-  if (state.paypal?.orderId) return "AUTHORIZATION REQUIRED";
+  if (state.paypal?.authorizationId) return "AUTHORISED";
+  if (state.paypal?.orderId) return "AUTHORISATION REQUIRED";
   return "NOT STARTED";
 }
 
@@ -23,7 +26,7 @@ function captureVoidState(state) {
   if (state.paypal?.voidedAt || state.status === "VOIDED") return "VOIDED";
   if (state.paypal?.webhookConfirmedAt || state.status === "CAPTURED") return "CAPTURED";
   if (state.paypal?.captureId || state.status === "CAPTURING") return "CAPTURE REQUESTED";
-  if (state.paypal?.authorizationId) return "UNCAPTURED AUTHORIZATION";
+  if (state.paypal?.authorizationId) return "UNCAPTURED AUTHORISATION";
   return "NONE";
 }
 
@@ -56,7 +59,7 @@ function buildJobRow(state) {
   const updatedAt = lastEventAt(state);
 
   return {
-    id: state.paypal?.orderId || "proofpay-demo",
+    id: "proofpay-demo",
     job: state.agreement?.title || "ProofPay demo transaction",
     amount: amountLabel(state),
     amountValue: currencyAmount(state),
@@ -69,7 +72,7 @@ function buildJobRow(state) {
     lastEvent: lastEvent(state),
     updatedAt,
     updatedAtLabel: updatedAt ? new Date(updatedAt).toLocaleString("en-GB") : "",
-    orderId: state.paypal?.orderId || "",
+    orderId: state.paypal?.orderId ? "Created" : "",
     authorizationPresent: Boolean(state.paypal?.authorizationId),
     capturePresent: Boolean(state.paypal?.captureId),
     webhookVerified: Boolean(state.paypal?.webhookVerified),
@@ -93,7 +96,7 @@ function buildAuditEvents(state) {
     at: event.at,
     atLabel: new Date(event.at).toLocaleString("en-GB"),
     event: event.label,
-    details: event.details || {},
+    details: publicEventDetails(event.details),
     severity: event.label.includes("failed") || event.label.includes("held") ? "attention" : "normal"
   }));
 }

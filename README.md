@@ -76,7 +76,7 @@ AI semantic checks confirm:
 - The exact slogan `Brew Better. Waste Less.` is present.
 - The creative does not contain or promote disposable plastic cups.
 
-The OpenAI call requests strict JSON output. ProofPay safely parses the model response into criterion, pass/fail status, reasoning, and evidence. Malformed AI output, failed API calls, or failed criteria leave the payment authorized but not captured.
+The OpenAI call requests strict JSON output. ProofPay requires each of the four predefined semantic criteria exactly once, with a valid pass/fail status and non-empty reasoning and evidence. Missing, duplicate, substituted, inconsistent or malformed criteria, failed API calls, and failed criteria leave the payment authorised but not captured.
 
 ## Human-In-The-Loop Safety
 
@@ -120,7 +120,7 @@ Summary cards highlight authorized, held, captured, voided, and exception value.
 Install dependencies:
 
 ```powershell
-npm install
+npm ci
 ```
 
 Create a local environment file:
@@ -129,6 +129,8 @@ Create a local environment file:
 Copy-Item .env.example .env
 notepad .env
 ```
+
+In the local `.env`, replace every placeholder with your OWN Sandbox, AI and access-password values. `PROOFPAY_ACCESS_PASSWORD` must be at least 16 characters. Do not share developer credentials with judges.
 
 Run environment validation:
 
@@ -142,7 +144,7 @@ Start the app:
 npm start
 ```
 
-Open:
+Open and sign in with the local access password:
 
 ```text
 http://localhost:3000
@@ -160,6 +162,7 @@ Use placeholders in `.env.example` only. Put real values in local `.env`, which 
 
 ```dotenv
 PAYPAL_ENV=sandbox
+PROOFPAY_ACCESS_PASSWORD=replace-with-your-own-long-random-password
 PAYPAL_CLIENT_ID=your-sandbox-rest-app-client-id
 PAYPAL_CLIENT_SECRET=your-sandbox-rest-app-client-secret
 
@@ -219,21 +222,31 @@ That file is generated at runtime and ignored by Git.
 
 ## Security Notes
 
-- `.env` is ignored by Git.
-- Secrets are not sent to the browser.
-- PayPal access tokens are server-side only.
-- OpenAI API keys are server-side only.
-- Capture is guarded server-side, not only in the UI.
-- Webhook signature verification is performed through PayPal when `PAYPAL_WEBHOOK_ID` is configured.
-- Webhook delivery changes state to **CAPTURED** only when the event matches the expected capture.
+- Local single-operator password authentication protects state reads and every payment-changing API endpoint. The password is never embedded in browser JavaScript.
+- A random, HttpOnly, SameSite=Lax session cookie and per-session CSRF token protect changes from cross-site requests; login attempts are rate limited.
+- PayPal buyer approval still occurs through PayPal Sandbox. The signed-in operator must separately click **Approve & Pay** to request capture.
+- All state mutations are serialised in one Node process. Reset cannot discard an active or uncertain authorisation; an uncertain authorisation or capture remains locked until an OAuth-authenticated, read-only PayPal Show Order reconciliation confirms the result.
+- A verified `PAYMENT.CAPTURE.COMPLETED` webhook is correlated to the known capture ID, order, completed status, final-capture flag, amount and currency. If a capture response timed out before its ID was stored, ProofPay additionally requires read-only PayPal order evidence tying exactly one completed capture to the original authorisation. A bad signature, mismatch, ambiguity or unexpected event cannot confirm capture; duplicates are idempotent.
+- Sensitive PayPal identifiers, callback nonces, uploaded image data and secrets are not exposed by state or Control Room APIs. `.env` is ignored by Git.
+- The server binds to `127.0.0.1` for local use. An HTTPS tunnel is needed only when actively receiving real Sandbox webhooks. Do **not** publish the local tunnel as a judge login link.
+
+## Judge Reproduction (Own Credentials)
+
+The safest judge experience is to clone this repository, run `npm ci` and `npm test` (no credentials, transactions or external API calls), review the submitted 1-minute-5-second demonstration, and optionally reproduce the **real** PayPal + OpenAI scenario locally using independently obtained credentials.
+
+For full live reproduction, a judge must supply their own PayPal Sandbox REST app client ID and secret, Sandbox personal buyer account, OpenAI API key, `PROOFPAY_ACCESS_PASSWORD`, and a public HTTPS webhook tunnel. They must register `PAYMENT.CAPTURE.COMPLETED` for their own app and set its own `PAYPAL_WEBHOOK_ID`. The latter is mandatory and missing verification never counts as success. Read [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md) for the full sequence.
+
+`npm test` uses **mocked provider responses** to exercise the real Express routes. It cannot demonstrate real Sandbox authorisation, an actual OpenAI result or real webhook delivery. The pre-recorded demonstration is evidence of the original workflow, not a substitute for a fresh integration test on this hardening branch.
 
 ## Known Limitations
 
-- This is a hackathon demo, not a production payment platform.
-- State is stored in local JSON rather than a database.
-- The demo supports one active job at a time.
-- PayPal and OpenAI calls require live credentials.
-- Sandbox webhook delivery depends on the current public HTTPS tunnel.
+- Hackathon prototype with **one** local operator and one active job; no multi-user identity, buyer/supplier role separation, encrypted-at-rest persistence or production-grade session store.
+- Local JSON state and in-memory sessions require a single Node process. Sessions are lost on restart; an active payment needs manual reconciliation if the process fails mid-capture.
+- The app does not cryptographically bind the local operator to the PayPal payer, so the local password must only be given to the authorised demo buyer.
+- AI semantic judgement can be incorrect or influenced by untrusted supplier evidence. Human approval and review remain essential.
+- Failed or timed-out PayPal capture requests might still have succeeded remotely. ProofPay deliberately blocks automatic retries and voids until Sandbox reconciliation.
+- Real PayPal and OpenAI integrations require the evaluator's own credentials, internet access and (for webhooks) a temporary HTTPS tunnel; OpenAI requests may incur charges.
+- This has not been assessed or deployed as a production payment system.
 
 ## Future Extensions
 

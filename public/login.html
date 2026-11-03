@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ProofPay sign in</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <main class="login-shell">
+    <section class="panel login-panel">
+      <div class="login-brand"><span class="brand-mark">PP</span><h1>ProofPay</h1></div>
+      <h2>Local demo access</h2>
+      <p>Enter the access password configured on this computer. No PayPal or OpenAI credentials belong in this field.</p>
+      <form id="loginForm">
+        <label for="accessPassword">Access password</label>
+        <input id="accessPassword" type="password" autocomplete="current-password" required autofocus>
+        <button class="primary-button wide-button" type="submit">Sign in</button>
+      </form>
+      <p id="loginMessage" role="alert" aria-live="polite"></p>
+    </section>
+  </main>
+  <script src="/login.js" type="module"></script>
+</body>
+</html>

@@ -49,6 +49,7 @@ const els = {
 };
 
 let currentState = null;
+let csrfToken = null;
 let selectedImageDataUrl = "";
 let selectedFileName = "verdant-volt.png";
 
@@ -57,10 +58,20 @@ function initSteps() {
 }
 
 async function api(path, options = {}) {
+  const changing = options.method && options.method.toUpperCase() !== "GET";
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(changing ? { "X-CSRF-Token": csrfToken } : {}),
+      ...(options.headers || {})
+    },
+    cache: "no-store"
   });
+  if (response.status === 401) {
+    window.location.replace("/login.html");
+    throw new Error("Sign in to continue.");
+  }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || body.verification?.error || `Request failed with HTTP ${response.status}`);
   return body;
@@ -88,11 +99,11 @@ function render(state) {
 
   const hasAuth = Boolean(state.paypal.authorizationId);
   const verified = state.verification.overall === "PASS" && state.status === "VERIFIED";
-  els.authorizeButton.disabled = Boolean(state.paypal.authorizationId || state.paypal.orderId);
-  els.submitButton.disabled = !hasAuth || !selectedImageDataUrl;
-  els.verifyButton.disabled = !hasAuth || !state.submission || state.status === "CHECKING";
+  els.authorizeButton.disabled = state.status !== "AUTHORIZATION_REQUIRED" || Boolean(state.paypal.authorizationId || state.paypal.orderId);
+  els.submitButton.disabled = !hasAuth || !selectedImageDataUrl || !["AUTHORIZED", "DELIVERABLE_SUBMITTED", "PAYMENT_HELD", "VERIFIED"].includes(state.status);
+  els.verifyButton.disabled = !hasAuth || !state.submission || state.status !== "DELIVERABLE_SUBMITTED";
   els.captureButton.disabled = !verified;
-  els.voidButton.disabled = !hasAuth || Boolean(state.paypal.captureId || state.paypal.voidedAt || state.status === "CAPTURED");
+  els.voidButton.disabled = !hasAuth || Boolean(state.paypal.captureId || state.paypal.voidedAt || ["CAPTURED", "CAPTURING", "CHECKING"].includes(state.status));
 
   els.approvalHeading.textContent = approvalHeading(state);
   els.approvalCopy.textContent = approvalCopy(state);
@@ -125,29 +136,34 @@ function statusClass(status, overall) {
 }
 
 function paymentNote(state) {
-  if (state.status === "CAPTURED") return "Webhook confirmed the PayPal capture.";
+  if (state.status === "CAPTURED" && state.paypal.webhookVerified) return "A verified PayPal webhook confirmed the capture.";
+  if (state.status === "CAPTURED") return "Read-only PayPal reconciliation confirmed the capture.";
   if (state.status === "CAPTURING") return "Capture sent to PayPal; waiting for webhook confirmation.";
-  if (state.status === "VOIDED") return "The uncaptured authorization was voided and funds were released.";
+  if (state.status === "AUTHORIZING") return "PayPal authorisation outcome is being reconciled.";
+  if (state.status === "VOIDED") return "The uncaptured authorisation was voided and funds were released.";
   if (state.status === "PAYMENT_HELD") return "Payment is authorised but not captured.";
   if (state.status === "VERIFIED") return "Verified. Buyer approval is required before capture.";
   if (state.paypal.authorizationId) return "PayPal payment is authorised, not captured.";
-  return "Buyer authorization is required before work can be paid.";
+  return "Buyer authorisation is required before work can be paid.";
 }
 
 function approvalHeading(state) {
   if (state.status === "VERIFIED") return "Ready for approval";
   if (state.status === "PAYMENT_HELD") return "Payment held";
   if (state.status === "CAPTURING") return "Capture submitted";
+  if (state.status === "AUTHORIZING") return "Authorisation pending";
   if (state.status === "CAPTURED") return "Captured by PayPal";
-  if (state.status === "VOIDED") return "Authorization voided";
+  if (state.status === "VOIDED") return "Authorisation voided";
   return "Verification required before payment capture";
 }
 
 function approvalCopy(state) {
-  if (state.status === "VERIFIED") return "The buyer can now approve the payment capture, or reject and void the authorization.";
-  if (state.status === "PAYMENT_HELD") return "At least one criterion failed. The authorization remains uncaptured.";
+  if (state.status === "VERIFIED") return "The buyer can now approve the payment capture, or reject and void the authorisation.";
+  if (state.status === "PAYMENT_HELD") return "At least one criterion failed. The authorisation remains uncaptured.";
   if (state.status === "CAPTURING") return "ProofPay has requested capture after explicit buyer approval.";
-  if (state.status === "CAPTURED") return "PayPal sent PAYMENT.CAPTURE.COMPLETED and ProofPay verified the webhook signature when configured.";
+  if (state.status === "CAPTURED" && state.paypal.webhookVerified) return "PayPal sent PAYMENT.CAPTURE.COMPLETED and ProofPay verified its signature.";
+  if (state.status === "CAPTURED") return "PayPal's read-only order record confirmed the completed capture.";
+  if (state.status === "AUTHORIZING") return "ProofPay will not repeat authorisation or reset until PayPal confirms the outcome.";
   if (state.status === "VOIDED") return "The supplier was not paid because the buyer rejected the deliverable.";
   return "ProofPay can only capture after verification passes and the buyer clicks Approve & Pay.";
 }
@@ -176,7 +192,7 @@ function renderEvents(events) {
   }
   els.events.innerHTML = events.map((event) => `
     <div class="event">
-      <time>${new Date(event.at).toLocaleString()}</time>
+      <time>${new Date(event.at).toLocaleString("en-GB")}</time>
       <div>
         <strong>${escapeHtml(event.label)}</strong>
         <code>${escapeHtml(JSON.stringify(event.details || {}, null, 2))}</code>
@@ -235,7 +251,7 @@ async function drawDemoImage(kind) {
   wrapText(ctx, "Carbon-conscious beans for a brighter morning.", 520, 292, 590, 42);
   ctx.fillStyle = corrected ? "#0b7f67" : "#b42318";
   ctx.font = "700 36px Arial";
-  wrapText(ctx, corrected ? "Reusable cup program included." : "Disposable plastic cups included.", 520, 438, 590, 44);
+  wrapText(ctx, corrected ? "Reusable cup programme included." : "Disposable plastic cups included.", 520, 438, 590, 44);
   ctx.fillStyle = "#18212b";
   ctx.font = "28px Arial";
   ctx.fillText("Sustainable launch campaign", 520, 594);
@@ -244,10 +260,10 @@ async function drawDemoImage(kind) {
   selectedFileName = corrected ? "verdant-volt-corrected.png" : "verdant-volt-failing.png";
   els.previewImage.src = selectedImageDataUrl;
   els.visibleText.value = corrected
-    ? "Verdant Volt Coffee. Brew Better. Waste Less. Carbon-conscious beans for a brighter morning. Reusable cup program included. Sustainable launch campaign."
+    ? "Verdant Volt Coffee. Brew Better. Waste Less. Carbon-conscious beans for a brighter morning. Reusable cup programme included. Sustainable launch campaign."
     : "Verdant Volt Coffee. Brew Better. Waste Less. Carbon-conscious beans for a brighter morning. Disposable plastic cups included. Sustainable launch campaign.";
   els.supplierNotes.value = corrected
-    ? "Corrected promotional image for an eco-friendly coffee brand. The creative removes disposable plastic and uses a reusable cup program."
+    ? "Corrected promotional image for an eco-friendly coffee brand. The creative removes disposable plastic and uses a reusable cup programme."
     : "First promotional image draft. The layout is polished and sustainability is visible, but the image still mentions disposable plastic cups.";
   render(currentState);
 }
@@ -342,7 +358,7 @@ els.verifyButton.addEventListener("click", () => runAction("verify", async () =>
 }));
 
 els.captureButton.addEventListener("click", () => runAction("capture", async () => {
-  await api("/api/paypal/capture", { method: "POST", body: "{}" });
+  await api("/api/paypal/capture", { method: "POST", body: JSON.stringify({ approve: true }) });
 }));
 
 els.voidButton.addEventListener("click", () => runAction("void", async () => {
@@ -350,14 +366,21 @@ els.voidButton.addEventListener("click", () => runAction("void", async () => {
 }));
 
 els.resetButton.addEventListener("click", () => runAction("reset", async () => {
+  await api("/api/reset", { method: "POST", body: "{}" });
   selectedImageDataUrl = "";
   selectedFileName = "verdant-volt.png";
   els.previewImage.removeAttribute("src");
   els.visibleText.value = "";
   els.supplierNotes.value = "";
-  await api("/api/reset", { method: "POST", body: "{}" });
 }));
 
-initSteps();
-await refresh();
-setInterval(refresh, 4000);
+const sessionResponse = await fetch("/api/session", { cache: "no-store" });
+const session = await sessionResponse.json();
+if (!session.authenticated) {
+  window.location.replace("/login.html");
+} else {
+  csrfToken = session.csrfToken;
+  initSteps();
+  await refresh();
+  setInterval(refresh, 4000);
+}

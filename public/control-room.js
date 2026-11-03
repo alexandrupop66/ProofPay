@@ -85,6 +85,11 @@ els.clearFiltersButton.addEventListener("click", clearFilters);
 
 async function refresh() {
   const response = await fetch("/api/control-room");
+  if (response.status === 401) {
+    window.location.replace("/login.html");
+    return;
+  }
+  if (!response.ok) return;
   latestPayload = await response.json();
 
   renderCards(latestPayload.cards);
@@ -128,7 +133,7 @@ function applyAgentFilter() {
     els.statusFilter.value = "VOIDED";
   } else if (text.includes("authorized") || text.includes("authorised")) {
     els.quickFilter.value = "";
-    els.statusFilter.value = "AUTHORIZED";
+    els.statusFilter.value = "AUTHORISED";
   } else {
     els.quickFilter.value = text;
     els.statusFilter.value = "";
