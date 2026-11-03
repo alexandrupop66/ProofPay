@@ -14,7 +14,7 @@ export const config = {
     ? process.env.PAYPAL_WEBHOOK_ID : "",
   openAiApiKey: process.env.OPENAI_API_KEY,
   openAiModel: process.env.OPENAI_MODEL || "gpt-4o-mini",
-  statePath: path.resolve("data", "proofpay-state.json"),
+  statePath: path.resolve(process.env.PROOFPAY_STATE_PATH || path.join("data", "proofpay-state.json")),
   publicDir: path.resolve("public")
 };
 
