@@ -17,7 +17,7 @@ await ensureStateFile();
 
 const app = createApp();
 
-app.listen(config.port, () => {
+app.listen(config.port, "127.0.0.1", () => {
   console.log(`ProofPay listening at http://localhost:${config.port}`);
-  console.log("Sandbox only. No secrets, access tokens, or webhook payload secrets will be printed.");
+  console.log("Sandbox only, bound to loopback. Secrets and tokens are not logged.");
 });
