@@ -30,7 +30,7 @@ cloudflared tunnel --url http://127.0.0.1:3000
 npm run webhook:create
 ```
 
-6. Copy the returned **webhook ID only** into the private `.env` as `PAYPAL_WEBHOOK_ID`. The script creates a remote subscription; do not rerun it unnecessarily. A missing or placeholder ID disables capture confirmation.
+6. Copy the returned **webhook ID only** into the private `.env` as `PAYPAL_WEBHOOK_ID`. The script creates a remote subscription; do not rerun it unnecessarily. A missing or placeholder ID disables capture confirmation. PayPal’s generic webhook simulator is **not** a substitute for a real app-associated delivery when using the signature-verification REST endpoint; see [PayPal webhook integration](https://developer.paypal.com/api/rest/webhooks/rest/).
 7. Check the environment, then start ProofPay:
 
 ```powershell
