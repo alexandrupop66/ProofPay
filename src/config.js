@@ -10,7 +10,8 @@ export const config = {
   paypalApiBase: "https://api-m.sandbox.paypal.com",
   paypalClientId: process.env.PAYPAL_CLIENT_ID,
   paypalClientSecret: process.env.PAYPAL_CLIENT_SECRET,
-  paypalWebhookId: process.env.PAYPAL_WEBHOOK_ID,
+  paypalWebhookId: process.env.PAYPAL_WEBHOOK_ID && !process.env.PAYPAL_WEBHOOK_ID.startsWith("your-")
+    ? process.env.PAYPAL_WEBHOOK_ID : "",
   openAiApiKey: process.env.OPENAI_API_KEY,
   openAiModel: process.env.OPENAI_MODEL || "gpt-4o-mini",
   statePath: path.resolve("data", "proofpay-state.json"),
@@ -21,9 +22,10 @@ export function missingConfig() {
   const missing = [];
   if (!config.accessPassword || config.accessPassword.length < 16 || config.accessPassword.startsWith("replace-with")) missing.push("PROOFPAY_ACCESS_PASSWORD (minimum 16 characters)");
   if (config.paypalEnv !== "sandbox") missing.push("PAYPAL_ENV must be sandbox");
-  if (!config.paypalClientId || config.paypalClientId.includes("replace-with")) missing.push("PAYPAL_CLIENT_ID");
-  if (!config.paypalClientSecret || config.paypalClientSecret.includes("replace-with")) missing.push("PAYPAL_CLIENT_SECRET");
-  if (!config.openAiApiKey || config.openAiApiKey.includes("replace-with")) missing.push("OPENAI_API_KEY");
+  if (!config.paypalClientId || config.paypalClientId.startsWith("your-") || config.paypalClientId.includes("replace-with")) missing.push("PAYPAL_CLIENT_ID");
+  if (!config.paypalClientSecret || config.paypalClientSecret.startsWith("your-") || config.paypalClientSecret.includes("replace-with")) missing.push("PAYPAL_CLIENT_SECRET");
+  if (!config.openAiApiKey || config.openAiApiKey.startsWith("your-") || config.openAiApiKey.includes("replace-with")) missing.push("OPENAI_API_KEY");
+  if (!config.paypalWebhookId) missing.push("PAYPAL_WEBHOOK_ID");
   return missing;
 }
 
