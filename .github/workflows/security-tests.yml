@@ -21,6 +21,12 @@ jobs:
           cache: npm
       - name: Install locked dependencies (no scripts)
         run: npm ci --ignore-scripts
+      - name: Generate patched lock for review (temporary diagnostic)
+        run: |
+          npm audit fix --package-lock-only --ignore-scripts
+          echo "__PROOFPAY_LOCK_START__"
+          cat package-lock.json
+          echo "__PROOFPAY_LOCK_END__"
       - name: Dependency advisory report (informational)
         run: npm audit --omit=dev || true
       - name: Check JavaScript syntax
