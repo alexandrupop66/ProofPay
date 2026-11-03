@@ -4,6 +4,7 @@ const port = Number(process.env.PORT || 3000);
 
 export const config = {
   port,
+  accessPassword: process.env.PROOFPAY_ACCESS_PASSWORD,
   appBaseUrl: process.env.APP_BASE_URL || `http://localhost:${port}`,
   paypalEnv: process.env.PAYPAL_ENV || "sandbox",
   paypalApiBase: "https://api-m.sandbox.paypal.com",
@@ -18,6 +19,7 @@ export const config = {
 
 export function missingConfig() {
   const missing = [];
+  if (!config.accessPassword || config.accessPassword.length < 16 || config.accessPassword.startsWith("replace-with")) missing.push("PROOFPAY_ACCESS_PASSWORD (minimum 16 characters)");
   if (config.paypalEnv !== "sandbox") missing.push("PAYPAL_ENV must be sandbox");
   if (!config.paypalClientId || config.paypalClientId.includes("replace-with")) missing.push("PAYPAL_CLIENT_ID");
   if (!config.paypalClientSecret || config.paypalClientSecret.includes("replace-with")) missing.push("PAYPAL_CLIENT_SECRET");
@@ -28,6 +30,7 @@ export function missingConfig() {
 export function safeError(error) {
   const message = error instanceof Error ? error.message : String(error);
   return message
+    .replaceAll(config.accessPassword || "\u0000", "[redacted]")
     .replaceAll(config.paypalClientSecret || "\u0000", "[redacted]")
     .replaceAll(config.openAiApiKey || "\u0000", "[redacted]")
     .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]");
