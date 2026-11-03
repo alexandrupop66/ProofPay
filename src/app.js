@@ -4,7 +4,10 @@ import { installSecurity } from "./security.js";
 import path from "path";
 import { config, missingConfig, safeError } from "./config.js";
 import { addEvent, loadState, publicState, resetState, saveState, withStateLock } from "./state.js";
-import { authorizeOrder, captureAuthorization, createAuthorizeOrder, verifyWebhookSignature, voidAuthorization } from "./paypal.js";
+import {
+  authorizeOrder, captureAuthorization, createAuthorizeOrder, PayPalEvidenceError,
+  reconcileAuthorization, reconcileCapture, verifyWebhookSignature, voidAuthorization
+} from "./paypal.js";
 import { runAiVerification, runDeterministicChecks, semanticCriteria } from "./verification.js";
 import { buildControlRoomPayload } from "./controlRoom.js";
 
@@ -32,6 +35,9 @@ export function createApp() {
 
   app.post("/api/reset", async (_req, res) => withStateLock(async () => {
     const current = await loadState();
+    if (current.status === "AUTHORIZING") {
+      return res.status(409).json({ error: "Reconcile the uncertain PayPal authorisation before resetting the demo." });
+    }
     if (current.paypal.authorizationId && !["CAPTURED", "VOIDED"].includes(current.status)) {
       return res.status(409).json({ error: "Void the active authorisation before resetting the demo." });
     }
@@ -59,6 +65,8 @@ export function createApp() {
           ...state.paypal,
           ...order,
           authorizationId: null,
+          authorizationRequestId: null,
+          authorizationOutcome: "NONE",
           captureId: null,
           captureRequestId: null,
           authorisedAt: null,
@@ -78,8 +86,8 @@ export function createApp() {
   }));
 
   app.get("/paypal/return", security.requireUser, async (req, res) => withStateLock(async () => {
+    let state = await loadState();
     try {
-      const state = await loadState();
       const token = String(req.query.token || "");
       const nonce = String(req.query.nonce || "");
       if (!token || state.status !== "AUTHORIZATION_REQUIRED" || state.paypal.authorizationId ||
@@ -88,13 +96,23 @@ export function createApp() {
         return;
       }
 
-      const authorization = await authorizeOrder(token, state.agreement);
+      state = await saveState(addEvent({
+        ...state,
+        status: "AUTHORIZING",
+        paypal: {
+          ...state.paypal,
+          authorizationRequestId: crypto.randomUUID(),
+          authorizationOutcome: "PENDING"
+        }
+      }, "PayPal authorisation submitted"));
+      const authorization = await authorizeOrder(token, state.agreement, state.paypal.authorizationRequestId);
       await saveState(addEvent({
         ...state,
         status: "AUTHORIZED",
         paypal: {
           ...state.paypal,
           authorizationId: authorization.authorizationId,
+          authorizationOutcome: "CONFIRMED",
           authorisedAt: new Date().toISOString(),
           pendingNonce: null
         }
@@ -106,8 +124,13 @@ export function createApp() {
 
       res.redirect("/?paypal=authorized");
     } catch (error) {
-      const state = await loadState();
-      await saveState(addEvent(state, "PayPal authorisation failed", { error: safeError(error) }));
+      state = await loadState();
+      if (state.status === "AUTHORIZING") {
+        await saveState(addEvent({
+          ...state,
+          paypal: { ...state.paypal, authorizationOutcome: "UNCERTAIN" }
+        }, "PayPal authorisation outcome uncertain; reconciliation required", { error: safeError(error) }));
+      }
       res.redirect("/?paypal=authorize-error");
     }
   }));
@@ -208,6 +231,61 @@ export function createApp() {
         }
       }, "Verification error", { error: safeError(error) }));
       res.status(500).json(publicState(nextState));
+    }
+  }));
+
+  app.post("/api/paypal/reconcile", async (_req, res) => withStateLock(async () => {
+    const state = await loadState();
+    try {
+      if (state.status === "AUTHORIZING" && !state.paypal.authorizationId) {
+        const authorization = await reconcileAuthorization({
+          orderId: state.paypal.orderId,
+          amount: state.agreement.amount,
+          currency: state.agreement.currency
+        });
+        const nextState = await saveState(addEvent({
+          ...state,
+          status: "AUTHORIZED",
+          paypal: {
+            ...state.paypal,
+            authorizationId: authorization.authorizationId,
+            authorizationOutcome: "CONFIRMED",
+            authorisedAt: new Date().toISOString(),
+            pendingNonce: null
+          }
+        }, "PayPal authorisation confirmed by read-only reconciliation", {
+          paypalStatus: authorization.paypalStatus
+        }));
+        return res.json(publicState(nextState));
+      }
+
+      if (state.status === "CAPTURING" && state.paypal.authorizationId) {
+        const capture = await reconcileCapture({
+          orderId: state.paypal.orderId,
+          authorizationId: state.paypal.authorizationId,
+          captureId: state.paypal.captureId,
+          amount: state.agreement.amount,
+          currency: state.agreement.currency
+        });
+        const nextState = await saveState(addEvent({
+          ...state,
+          status: "CAPTURED",
+          paypal: {
+            ...state.paypal,
+            captureId: capture.captureId,
+            captureOutcome: "CONFIRMED",
+            capturedAt: new Date().toISOString()
+          }
+        }, "PayPal capture confirmed by read-only reconciliation", {
+          paypalStatus: capture.paypalStatus
+        }));
+        return res.json(publicState(nextState));
+      }
+
+      return res.status(409).json({ error: "No uncertain PayPal result is available to reconcile." });
+    } catch (error) {
+      const status = error instanceof PayPalEvidenceError ? 409 : 502;
+      return res.status(status).json({ error: safeError(error) });
     }
   }));
 
@@ -350,24 +428,45 @@ async function handlePaypalWebhook(req, res) {
 
       const resource = event.resource;
       const related = resource?.supplementary_data?.related_ids;
-      const matches = event.event_type === "PAYMENT.CAPTURE.COMPLETED" &&
+      const baseMatches = event.event_type === "PAYMENT.CAPTURE.COMPLETED" &&
         ["CAPTURING", "CAPTURED"].includes(state.status) &&
         resource?.status === "COMPLETED" && typeof resource?.id === "string" && Boolean(resource.id) &&
-        (!state.paypal.captureId || resource.id === state.paypal.captureId) &&
-        related?.authorization_id === state.paypal.authorizationId &&
+        resource.final_capture === true &&
         related?.order_id === state.paypal.orderId &&
         resource.amount?.currency_code === state.agreement.currency &&
         resource.amount?.value === state.agreement.amount;
+      const knownCaptureMatches = Boolean(state.paypal.captureId) && resource?.id === state.paypal.captureId;
 
-      if (!matches) {
+      if (!baseMatches || (state.paypal.captureId && !knownCaptureMatches)) {
         await saveState(addEvent(state, "Verified PayPal webhook ignored (unexpected state or capture)", {
           eventType: event.event_type, matchesCapture: false
         }));
         return res.sendStatus(202);
       }
 
-      if (state.status === "CAPTURED") {
+      if (state.status === "CAPTURED" && state.paypal.webhookVerified) {
         return res.sendStatus(200); // A delayed duplicate completion cannot change settled state.
+      }
+
+      let reconciledUnknownCapture = false;
+      if (!state.paypal.captureId) {
+        try {
+          const capture = await reconcileCapture({
+            orderId: state.paypal.orderId,
+            authorizationId: state.paypal.authorizationId,
+            captureId: resource.id,
+            amount: state.agreement.amount,
+            currency: state.agreement.currency
+          });
+          if (capture.captureId !== resource.id) throw new PayPalEvidenceError("PayPal reconciliation returned another capture.");
+          reconciledUnknownCapture = true;
+        } catch (error) {
+          if (!(error instanceof PayPalEvidenceError)) throw error;
+          await saveState(addEvent(state, "Verified PayPal webhook ignored after inconclusive reconciliation", {
+            eventType: event.event_type, matchesCapture: false
+          }));
+          return res.sendStatus(202);
+        }
       }
 
       const nextState = {
@@ -385,7 +484,8 @@ async function handlePaypalWebhook(req, res) {
         }
       };
       await saveState(addEvent(nextState, "PayPal capture confirmed by verified webhook", {
-        eventType: event.event_type, verified: true, matchesCapture: true
+        eventType: event.event_type, verified: true, matchesCapture: true,
+        reconciledUnknownCapture
       }));
       return res.sendStatus(200);
     });

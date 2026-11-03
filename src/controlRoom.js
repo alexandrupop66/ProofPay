@@ -15,6 +15,7 @@ function paymentState(state) {
   if (state.status === "VOIDED") return "VOIDED";
   if (state.status === "CAPTURED") return "CAPTURED";
   if (state.status === "CAPTURING") return "CAPTURING";
+  if (state.status === "AUTHORIZING") return "AUTHORISING";
   if (state.status === "PAYMENT_HELD") return "HELD";
   if (state.paypal?.authorizationId) return "AUTHORISED";
   if (state.paypal?.orderId) return "AUTHORISATION REQUIRED";

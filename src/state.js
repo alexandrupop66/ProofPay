@@ -5,6 +5,7 @@ import { config } from "./config.js";
 
 export const statusLabels = {
   AUTHORIZATION_REQUIRED: "AUTHORISATION REQUIRED",
+  AUTHORIZING: "AUTHORISING",
   AUTHORIZED: "AUTHORISED",
   DELIVERABLE_SUBMITTED: "DELIVERABLE SUBMITTED",
   CHECKING: "CHECKING",
@@ -38,6 +39,8 @@ export function freshState() {
     paypal: {
       orderId: null,
       authorizationId: null,
+      authorizationRequestId: null,
+      authorizationOutcome: "NONE",
       captureId: null,
       captureRequestId: null,
       approvalUrl: null,
@@ -111,7 +114,7 @@ export async function withStateLock(action) {
   }
 }
 
-const privateDetailKeys = /^(orderId|authorizationId|captureId|eventId|resourceId|pendingNonce|captureRequestId|approvalUrl|token|secret|password)$/i;
+const privateDetailKeys = /^(orderId|authorizationId|authorizationRequestId|captureId|eventId|resourceId|pendingNonce|captureRequestId|approvalUrl|token|secret|password)$/i;
 
 export function publicEventDetails(details = {}) {
   if (!details || typeof details !== "object" || Array.isArray(details)) return {};
@@ -130,6 +133,7 @@ export function publicState(state) {
       authorizationId: Boolean(state.paypal?.authorizationId),
       captureId: Boolean(state.paypal?.captureId),
       authorisedAt: state.paypal?.authorisedAt || null,
+      authorizationOutcome: state.paypal?.authorizationOutcome || "NONE",
       capturedAt: state.paypal?.capturedAt || null,
       voidedAt: state.paypal?.voidedAt || null,
       webhookConfirmedAt: state.paypal?.webhookConfirmedAt || null,

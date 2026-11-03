@@ -124,6 +124,8 @@ If capture was requested but its outcome is uncertain, ProofPay intentionally re
 
 A delayed, verified `PAYMENT.CAPTURE.COMPLETED` webhook can safely recover this state only when its capture, authorisation, order, amount and currency correlate to the current transaction. Unmatched or malformed events never settle the local transaction.
 
+If an authorisation or capture API response was lost, use the authenticated `POST /api/paypal/reconcile` recovery action. It performs only a read-only PayPal Show Order request and updates local state only when one unambiguous order, authorisation, amount, currency and (where applicable) completed capture match. It never repeats authorisation or capture.
+
 ### Webhook Delay
 
 If the webhook takes longer than expected, wait up to a few minutes. For the final recorded pass, only count automatic PayPal delivery as the capture confirmation. Manual resend is useful for diagnosis, but not for the final demo take.

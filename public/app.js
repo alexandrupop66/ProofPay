@@ -136,8 +136,10 @@ function statusClass(status, overall) {
 }
 
 function paymentNote(state) {
-  if (state.status === "CAPTURED") return "A verified PayPal webhook confirmed the capture.";
+  if (state.status === "CAPTURED" && state.paypal.webhookVerified) return "A verified PayPal webhook confirmed the capture.";
+  if (state.status === "CAPTURED") return "Read-only PayPal reconciliation confirmed the capture.";
   if (state.status === "CAPTURING") return "Capture sent to PayPal; waiting for webhook confirmation.";
+  if (state.status === "AUTHORIZING") return "PayPal authorisation outcome is being reconciled.";
   if (state.status === "VOIDED") return "The uncaptured authorisation was voided and funds were released.";
   if (state.status === "PAYMENT_HELD") return "Payment is authorised but not captured.";
   if (state.status === "VERIFIED") return "Verified. Buyer approval is required before capture.";
@@ -149,6 +151,7 @@ function approvalHeading(state) {
   if (state.status === "VERIFIED") return "Ready for approval";
   if (state.status === "PAYMENT_HELD") return "Payment held";
   if (state.status === "CAPTURING") return "Capture submitted";
+  if (state.status === "AUTHORIZING") return "Authorisation pending";
   if (state.status === "CAPTURED") return "Captured by PayPal";
   if (state.status === "VOIDED") return "Authorisation voided";
   return "Verification required before payment capture";
@@ -158,7 +161,9 @@ function approvalCopy(state) {
   if (state.status === "VERIFIED") return "The buyer can now approve the payment capture, or reject and void the authorisation.";
   if (state.status === "PAYMENT_HELD") return "At least one criterion failed. The authorisation remains uncaptured.";
   if (state.status === "CAPTURING") return "ProofPay has requested capture after explicit buyer approval.";
-  if (state.status === "CAPTURED") return "PayPal sent PAYMENT.CAPTURE.COMPLETED and ProofPay verified its signature.";
+  if (state.status === "CAPTURED" && state.paypal.webhookVerified) return "PayPal sent PAYMENT.CAPTURE.COMPLETED and ProofPay verified its signature.";
+  if (state.status === "CAPTURED") return "PayPal's read-only order record confirmed the completed capture.";
+  if (state.status === "AUTHORIZING") return "ProofPay will not repeat authorisation or reset until PayPal confirms the outcome.";
   if (state.status === "VOIDED") return "The supplier was not paid because the buyer rejected the deliverable.";
   return "ProofPay can only capture after verification passes and the buyer clicks Approve & Pay.";
 }

@@ -3,6 +3,8 @@ import { config } from "./config.js";
 
 const tokenCache = { token: null, expiresAt: 0 };
 
+export class PayPalEvidenceError extends Error {}
+
 async function getAccessToken() {
   if (tokenCache.token && Date.now() < tokenCache.expiresAt - 60_000) {
     return tokenCache.token;
@@ -87,8 +89,11 @@ export async function createAuthorizeOrder({ amount, currency, title }) {
   return { orderId: body.id, approvalUrl: href, pendingNonce: nonce };
 }
 
-export async function authorizeOrder(orderId, expectedAgreement) {
-  const { body } = await paypal("POST", `/v2/checkout/orders/${orderId}/authorize`, {}, { Prefer: "return=representation" });
+export async function authorizeOrder(orderId, expectedAgreement, requestId) {
+  const { body } = await paypal("POST", `/v2/checkout/orders/${orderId}/authorize`, {}, {
+    Prefer: "return=representation",
+    "PayPal-Request-Id": requestId
+  });
   const authorizations = body?.purchase_units
     ?.flatMap((unit) => unit.payments?.authorizations || []) || [];
   const authorization = authorizations.length === 1 ? authorizations[0] : null;
@@ -99,6 +104,54 @@ export async function authorizeOrder(orderId, expectedAgreement) {
     throw new Error("PayPal did not confirm the expected active authorisation and amount.");
   }
   return { authorizationId: authorization.id, paypalStatus: body.status };
+}
+
+async function showOrder(orderId) {
+  const { body } = await paypal("GET", `/v2/checkout/orders/${orderId}`);
+  if (body?.id !== orderId || body.intent !== "AUTHORIZE" || !Array.isArray(body.purchase_units) ||
+      body.purchase_units.length !== 1) {
+    throw new PayPalEvidenceError("PayPal order reconciliation returned an unexpected order.");
+  }
+  return body;
+}
+
+function matchingPurchaseUnit(order, { amount, currency }) {
+  const unit = order.purchase_units[0];
+  if (unit.amount?.currency_code !== currency || unit.amount?.value !== amount) {
+    throw new PayPalEvidenceError("PayPal order reconciliation returned an unexpected amount.");
+  }
+  return unit;
+}
+
+export async function reconcileAuthorization({ orderId, amount, currency }) {
+  const order = await showOrder(orderId);
+  const unit = matchingPurchaseUnit(order, { amount, currency });
+  const authorizations = unit.payments?.authorizations || [];
+  if (order.status !== "COMPLETED" || authorizations.length !== 1) {
+    throw new PayPalEvidenceError("PayPal has not confirmed one active authorisation for this order.");
+  }
+  const authorization = authorizations[0];
+  if (!authorization?.id || authorization.status !== "CREATED" ||
+      authorization.amount?.currency_code !== currency || authorization.amount?.value !== amount) {
+    throw new PayPalEvidenceError("PayPal order reconciliation did not confirm the expected authorisation.");
+  }
+  return { authorizationId: authorization.id, paypalStatus: authorization.status };
+}
+
+export async function reconcileCapture({ orderId, authorizationId, captureId, amount, currency }) {
+  const order = await showOrder(orderId);
+  const unit = matchingPurchaseUnit(order, { amount, currency });
+  const authorizations = unit.payments?.authorizations || [];
+  const captures = unit.payments?.captures || [];
+  const authorization = authorizations.find((candidate) => candidate.id === authorizationId);
+  const matchingCaptures = captures.filter((candidate) =>
+    (!captureId || candidate.id === captureId) && candidate.status === "COMPLETED" &&
+    candidate.amount?.currency_code === currency && candidate.amount?.value === amount
+  );
+  if (order.status !== "COMPLETED" || !authorization || matchingCaptures.length !== 1 || captures.length !== 1) {
+    throw new PayPalEvidenceError("PayPal order reconciliation did not confirm one related completed capture.");
+  }
+  return { captureId: matchingCaptures[0].id, paypalStatus: matchingCaptures[0].status };
 }
 
 export async function captureAuthorization({ authorizationId, amount, currency, requestId }) {

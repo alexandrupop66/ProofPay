@@ -21,10 +21,14 @@ const realFetch = globalThis.fetch;
 const provider = {
   order: null,
   orders: 0,
+  authorizations: 0,
   captures: 0,
   voids: 0,
   failCapture: false,
   timeoutAfterCapture: false,
+  timeoutAfterAuthorization: false,
+  reconciliationAmount: null,
+  extraCapture: false,
   failVoid: false,
   failAi: false,
   aiMode: "valid"
@@ -74,7 +78,10 @@ globalThis.fetch = async (input, init = {}) => {
     provider.order = {
       id: `ORDER-${provider.orders}`,
       amount: request.purchase_units[0].amount,
-      nonce: new URL(request.application_context.return_url).searchParams.get("nonce")
+      nonce: new URL(request.application_context.return_url).searchParams.get("nonce"),
+      authorizationId: null,
+      captureId: null,
+      captureAmount: null
     };
     return jsonResponse(201, {
       id: provider.order.id,
@@ -83,6 +90,11 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if (url.pathname.endsWith("/authorize")) {
     const id = url.pathname.split("/")[4];
+    provider.authorizations += 1;
+    assert.ok(init.headers["PayPal-Request-Id"], "Authorisation must use a persisted idempotency request ID");
+    provider.order.authorizationId = `AUTH-${id}`;
+    provider.order.authorizationRequestId = init.headers["PayPal-Request-Id"];
+    if (provider.timeoutAfterAuthorization) throw new Error("Simulated timeout after provider authorised order");
     return jsonResponse(201, {
       id, intent: "AUTHORIZE", status: "COMPLETED",
       purchase_units: [{ payments: { authorizations: [{
@@ -92,11 +104,44 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if (url.pathname.endsWith("/capture")) {
     provider.captures += 1;
+    const amount = JSON.parse(init.body).amount;
+    provider.order.captureId = `CAPTURE-${provider.captures}`;
+    provider.order.captureAmount = amount;
     if (provider.timeoutAfterCapture) throw new Error("Simulated timeout after provider completed capture");
     if (provider.failCapture) return jsonResponse(500, { error: "Simulated upstream capture failure" });
-    const amount = JSON.parse(init.body).amount;
     assert.ok(init.headers["PayPal-Request-Id"], "Server must send a stable idempotency request ID");
-    return jsonResponse(201, { id: `CAPTURE-${provider.captures}`, status: "COMPLETED", amount });
+    return jsonResponse(201, { id: provider.order.captureId, status: "COMPLETED", amount });
+  }
+  if (init.method === "GET" && url.pathname.startsWith("/v2/checkout/orders/")) {
+    const amount = provider.reconciliationAmount
+      ? { ...provider.order.amount, value: provider.reconciliationAmount }
+      : provider.order.amount;
+    const payments = {};
+    if (provider.order.authorizationId) {
+      payments.authorizations = [{
+        id: provider.order.authorizationId,
+        status: provider.order.captureId ? "CAPTURED" : "CREATED",
+        amount: provider.order.amount
+      }];
+    }
+    if (provider.order.captureId) {
+      payments.captures = [{
+        id: provider.order.captureId,
+        status: "COMPLETED",
+        amount: provider.order.captureAmount
+      }];
+      if (provider.extraCapture) payments.captures.push({
+        id: "CAPTURE-AMBIGUOUS",
+        status: "COMPLETED",
+        amount: provider.order.captureAmount
+      });
+    }
+    return jsonResponse(200, {
+      id: provider.order.id,
+      intent: "AUTHORIZE",
+      status: provider.order.authorizationId ? "COMPLETED" : "APPROVED",
+      purchase_units: [{ amount, payments }]
+    });
   }
   if (url.pathname.endsWith("/void")) {
     provider.voids += 1;
@@ -185,9 +230,9 @@ test("real Express routes enforce payment security and preserve the demo journey
       status: "COMPLETED",
       amount: { currency_code: "GBP", value: "25.00" },
       supplementary_data: { related_ids: {
-        authorization_id: `AUTH-${provider.order?.id}`,
         order_id: provider.order?.id
       } },
+      final_capture: true,
       ...overrides
     } };
     const headers = { "Content-Type": "application/json" };
@@ -205,7 +250,7 @@ test("real Express routes enforce payment security and preserve the demo journey
     for (const endpoint of ["/api/state", "/api/control-room", "/api/config-check"]) {
       assert.equal((await request(endpoint, { auth: false })).status, 401);
     }
-    for (const endpoint of ["/api/reset", "/api/submission", "/api/verify", "/api/paypal/create-order", "/api/paypal/capture", "/api/paypal/void"]) {
+    for (const endpoint of ["/api/reset", "/api/submission", "/api/verify", "/api/paypal/create-order", "/api/paypal/capture", "/api/paypal/void", "/api/paypal/reconcile"]) {
       assert.equal((await post(endpoint, { approve: true }, { auth: false })).status, 401);
     }
     assert.equal((await post("/api/login", { password: "incorrect" }, { auth: false })).status, 401);
@@ -357,6 +402,45 @@ test("real Express routes enforce payment security and preserve the demo journey
     assert.equal((await request("/api/control-room")).data.cards.voided, 25);
   });
 
+  await t.test("authorisation timeout is locked and recovered only by read-only order reconciliation", async () => {
+    assert.equal((await post("/api/reset")).status, 200);
+    const created = await post("/api/paypal/create-order", {
+      agreement: { title: "Verdant Volt Coffee campaign", amount: "25.00" }
+    });
+    assert.equal(created.status, 200);
+    const callback = `/paypal/return?token=${provider.order.id}&nonce=${provider.order.nonce}`;
+    const authorizationsBefore = provider.authorizations;
+    provider.timeoutAfterAuthorization = true;
+    const returned = await request(callback);
+    provider.timeoutAfterAuthorization = false;
+    assert.equal(returned.status, 302);
+    assert.match(returned.headers.get("location"), /paypal=authorize-error/);
+    assert.equal(provider.authorizations, authorizationsBefore + 1);
+    assert.equal((await state()).status, "AUTHORIZING");
+    assert.equal((await state()).paypal.authorizationOutcome, "UNCERTAIN");
+    assert.equal((await post("/api/reset")).status, 409);
+    assert.equal((await post("/api/paypal/create-order", {})).status, 409);
+    const duplicate = await request(callback);
+    assert.equal(duplicate.status, 302);
+    assert.match(duplicate.headers.get("location"), /paypal=return-rejected/);
+    assert.equal(provider.authorizations, authorizationsBefore + 1, "Duplicate callback must not repeat authorisation");
+    const privateState = await loadState();
+    assert.equal(privateState.paypal.authorizationRequestId, provider.order.authorizationRequestId);
+    assert.equal(JSON.stringify(await state()).includes(provider.order.authorizationRequestId), false);
+
+    provider.reconciliationAmount = "99.00";
+    assert.equal((await post("/api/paypal/reconcile")).status, 409);
+    assert.equal((await state()).status, "AUTHORIZING");
+    assert.equal((await post("/api/reset")).status, 409);
+    provider.reconciliationAmount = null;
+    assert.equal((await post("/api/paypal/reconcile")).status, 200);
+    assert.equal((await state()).status, "AUTHORIZED");
+    assert.equal((await state()).paypal.authorizationOutcome, "CONFIRMED");
+    assert.equal((await post("/api/paypal/reconcile")).status, 409);
+    assert.equal((await post("/api/paypal/void")).status, 200);
+    assert.equal((await state()).status, "VOIDED");
+  });
+
   await t.test("provider-success capture timeout recovers only from fully correlated verified evidence", async () => {
     assert.equal((await post("/api/reset")).status, 200);
     await authorise();
@@ -373,11 +457,14 @@ test("real Express routes enforce payment security and preserve the demo journey
     assert.equal((await post("/api/reset")).status, 409);
     const completedCapture = `CAPTURE-${provider.captures}`;
     assert.equal((await webhook("MISMATCHED-ORDER", completedCapture, "valid", "PAYMENT.CAPTURE.COMPLETED", true, {
-      supplementary_data: { related_ids: { authorization_id: `AUTH-${provider.order.id}`, order_id: "OTHER-ORDER" } }
+      supplementary_data: { related_ids: { order_id: "OTHER-ORDER" } }
     })).status, 202);
     assert.equal((await webhook("INVALID-AMOUNT", completedCapture, "valid", "PAYMENT.CAPTURE.COMPLETED", true, {
       amount: { currency_code: "GBP", value: "250.00" }
     })).status, 202);
+    provider.extraCapture = true;
+    assert.equal((await webhook("AMBIGUOUS-CAPTURES", completedCapture)).status, 202);
+    provider.extraCapture = false;
     assert.notEqual((await state()).status, "CAPTURED");
     assert.equal((await webhook("RECOVERY", completedCapture)).status, 200);
     assert.equal((await state()).status, "CAPTURED");
@@ -386,5 +473,20 @@ test("real Express routes enforce payment security and preserve the demo journey
     assert.equal((await webhook("DELAYED-DUPLICATE", completedCapture)).status, 200);
     assert.equal((await post("/api/paypal/capture", { approve: true })).status, 409);
     assert.equal((await post("/api/paypal/void")).status, 409);
+  });
+
+  await t.test("manual read-only capture reconciliation records a later genuine-style webhook", async () => {
+    assert.equal((await post("/api/reset")).status, 200);
+    await authorise();
+    assert.equal((await submitAndVerify(true)).status, "VERIFIED");
+    provider.timeoutAfterCapture = true;
+    assert.equal((await post("/api/paypal/capture", { approve: true })).status, 502);
+    provider.timeoutAfterCapture = false;
+    assert.equal((await post("/api/paypal/reconcile")).status, 200);
+    const reconciled = await state();
+    assert.equal(reconciled.status, "CAPTURED");
+    assert.equal(reconciled.paypal.webhookVerified, false);
+    assert.equal((await webhook("DELAYED-AFTER-RECONCILIATION", `CAPTURE-${provider.captures}`)).status, 200);
+    assert.equal((await state()).paypal.webhookVerified, true);
   });
 });
