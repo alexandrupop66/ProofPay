@@ -60,7 +60,7 @@ export function installSecurity(app) {
   app.post("/api/login", (req, res) => {
     if (!sameOrigin(req)) return res.status(403).json({ error: "Cross-site login is not permitted." });
     if (!req.is("application/json")) return res.status(415).json({ error: "JSON is required." });
-    if (!config.accessPassword || config.accessPassword.length < 16) {
+    if (!config.accessPassword || config.accessPassword.length < 16 || config.accessPassword.startsWith("replace-with")) {
       return res.status(503).json({ error: "Set a local PROOFPAY_ACCESS_PASSWORD of at least 16 characters." });
     }
 
