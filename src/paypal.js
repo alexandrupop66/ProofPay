@@ -47,7 +47,7 @@ async function paypal(method, endpoint, payload, extraHeaders = {}) {
 
   const body = await response.json().catch(async () => ({ raw: await response.text().catch(() => "") }));
   if (!response.ok) {
-    throw new Error(`PayPal ${method} ${endpoint} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+    throw new Error(`PayPal request failed with HTTP ${response.status}.`);
   }
   return { statusCode: response.status, body };
 }
@@ -83,34 +83,41 @@ export async function createAuthorizeOrder({ amount, currency, title }) {
   }, { Prefer: "return=representation" });
 
   const href = approvalLink(body);
-  if (!href) throw new Error(`PayPal order ${body.id} did not include an approval URL`);
+  if (!body?.id || !href) throw new Error("PayPal did not return an order and an approval URL.");
   return { orderId: body.id, approvalUrl: href, pendingNonce: nonce };
 }
 
-function getAuthorizationId(authorizeResponse) {
-  const authorizations = authorizeResponse.purchase_units
-    ?.flatMap((unit) => unit.payments?.authorizations || [])
-    .filter(Boolean);
-  return authorizations?.[0]?.id;
-}
-
-export async function authorizeOrder(orderId) {
+export async function authorizeOrder(orderId, expectedAgreement) {
   const { body } = await paypal("POST", `/v2/checkout/orders/${orderId}/authorize`, {}, { Prefer: "return=representation" });
-  const authorizationId = getAuthorizationId(body);
-  if (!authorizationId) throw new Error("PayPal authorize response did not contain an authorization id");
-  return { authorizationId, paypalStatus: body.status };
+  const authorizations = body?.purchase_units
+    ?.flatMap((unit) => unit.payments?.authorizations || []) || [];
+  const authorization = authorizations.length === 1 ? authorizations[0] : null;
+  if (body?.id !== orderId || body.intent !== "AUTHORIZE" || body.status !== "COMPLETED" ||
+      !authorization?.id || authorization.status !== "CREATED" ||
+      authorization.amount?.currency_code !== expectedAgreement.currency ||
+      authorization.amount?.value !== expectedAgreement.amount) {
+    throw new Error("PayPal did not confirm the expected active authorisation and amount.");
+  }
+  return { authorizationId: authorization.id, paypalStatus: body.status };
 }
 
-export async function captureAuthorization({ authorizationId, amount, currency }) {
+export async function captureAuthorization({ authorizationId, amount, currency, requestId }) {
   const { body } = await paypal("POST", `/v2/payments/authorizations/${authorizationId}/capture`, {
     amount: { currency_code: currency, value: amount },
     final_capture: true
-  }, { Prefer: "return=representation" });
+  }, { Prefer: "return=representation", "PayPal-Request-Id": requestId });
+  if (!body?.id || !["COMPLETED", "PENDING"].includes(body.status) ||
+    body.amount?.currency_code !== currency || body.amount?.value !== amount) {
+    throw new Error("PayPal did not return a valid capture acknowledgement.");
+  }
   return { captureId: body.id, paypalStatus: body.status };
 }
 
 export async function voidAuthorization(authorizationId) {
   const { statusCode, body } = await paypal("POST", `/v2/payments/authorizations/${authorizationId}/void`, undefined, { Prefer: "return=representation" });
+  if (statusCode !== 204 && body?.status !== "VOIDED") {
+    throw new Error("PayPal did not confirm the void.");
+  }
   return { paypalStatus: body?.status || `HTTP ${statusCode}` };
 }
 
