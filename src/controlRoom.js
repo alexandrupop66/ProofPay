@@ -1,3 +1,5 @@
+import { publicEventDetails } from "./state.js";
+
 function resultFromChecks(checks = []) {
   if (!checks.length) return "NOT RUN";
   return checks.every((check) => check.status === "PASS") ? "PASS" : "FAIL";
@@ -56,7 +58,7 @@ function buildJobRow(state) {
   const updatedAt = lastEventAt(state);
 
   return {
-    id: state.paypal?.orderId || "proofpay-demo",
+    id: "proofpay-demo",
     job: state.agreement?.title || "ProofPay demo transaction",
     amount: amountLabel(state),
     amountValue: currencyAmount(state),
@@ -69,7 +71,7 @@ function buildJobRow(state) {
     lastEvent: lastEvent(state),
     updatedAt,
     updatedAtLabel: updatedAt ? new Date(updatedAt).toLocaleString("en-GB") : "",
-    orderId: state.paypal?.orderId || "",
+    orderId: state.paypal?.orderId ? "Created" : "",
     authorizationPresent: Boolean(state.paypal?.authorizationId),
     capturePresent: Boolean(state.paypal?.captureId),
     webhookVerified: Boolean(state.paypal?.webhookVerified),
@@ -93,7 +95,7 @@ function buildAuditEvents(state) {
     at: event.at,
     atLabel: new Date(event.at).toLocaleString("en-GB"),
     event: event.label,
-    details: event.details || {},
+    details: publicEventDetails(event.details),
     severity: event.label.includes("failed") || event.label.includes("held") ? "attention" : "normal"
   }));
 }
