@@ -67,7 +67,7 @@ export function createApp() {
           webhookConfirmedAt: null,
           webhookVerified: false
         }
-      }, "PayPal authorize order created", { orderId: order.orderId }));
+      }, "PayPal authorisation order created", { orderId: order.orderId }));
 
       res.json({ approvalUrl: order.approvalUrl, state: publicState(nextState) });
     } catch (error) {
@@ -105,7 +105,7 @@ export function createApp() {
       res.redirect("/?paypal=authorized");
     } catch (error) {
       const state = await loadState();
-      await saveState(addEvent(state, "PayPal authorization failed", { error: safeError(error) }));
+      await saveState(addEvent(state, "PayPal authorisation failed", { error: safeError(error) }));
       res.redirect("/?paypal=authorize-error");
     }
   }));
@@ -256,9 +256,9 @@ export function createApp() {
   app.post("/api/paypal/void", async (_req, res) => withStateLock(async () => {
     let state = await loadState();
     try {
-      if (!state.paypal.authorizationId) return res.status(400).json({ error: "No PayPal authorization is available to void." });
+      if (!state.paypal.authorizationId) return res.status(400).json({ error: "No PayPal authorisation is available to void." });
       if (state.paypal.captureId || state.status === "CAPTURED" || state.status === "CAPTURING") {
-        return res.status(409).json({ error: "This authorization has already been captured and cannot be voided." });
+        return res.status(409).json({ error: "This authorisation has already been captured and cannot be voided." });
       }
 
       if (state.paypal.voidedAt || !["AUTHORIZED", "DELIVERABLE_SUBMITTED", "PAYMENT_HELD", "VERIFIED"].includes(state.status)) {
@@ -272,7 +272,7 @@ export function createApp() {
           ...state.paypal,
           voidedAt: new Date().toISOString()
         }
-      }, "Buyer rejected work and voided authorization", voidResult));
+      }, "Buyer rejected work and voided authorisation", voidResult));
       res.json(publicState(nextState));
     } catch (error) {
       const nextState = await saveState(addEvent(state, "PayPal void failed", { error: safeError(error) }));
