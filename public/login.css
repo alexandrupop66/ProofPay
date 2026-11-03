@@ -1,0 +1,8 @@
+.login-shell { display: grid; min-height: 100vh; place-items: center; padding: 20px; }
+.login-panel { width: min(100%, 440px); display: grid; gap: 16px; padding: 28px; }
+.login-brand { display: flex; align-items: center; gap: 12px; }
+.login-brand h1 { font-size: 1.5rem; }
+.login-panel p { color: var(--muted); line-height: 1.5; }
+.login-panel label { margin: 0 0 6px; }
+.login-panel .wide-button { margin-top: 16px; }
+#loginMessage { min-height: 1.5rem; color: var(--red); }
