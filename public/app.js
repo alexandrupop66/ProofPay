@@ -138,11 +138,11 @@ function statusClass(status, overall) {
 function paymentNote(state) {
   if (state.status === "CAPTURED") return "A verified PayPal webhook confirmed the capture.";
   if (state.status === "CAPTURING") return "Capture sent to PayPal; waiting for webhook confirmation.";
-  if (state.status === "VOIDED") return "The uncaptured authorization was voided and funds were released.";
+  if (state.status === "VOIDED") return "The uncaptured authorisation was voided and funds were released.";
   if (state.status === "PAYMENT_HELD") return "Payment is authorised but not captured.";
   if (state.status === "VERIFIED") return "Verified. Buyer approval is required before capture.";
   if (state.paypal.authorizationId) return "PayPal payment is authorised, not captured.";
-  return "Buyer authorization is required before work can be paid.";
+  return "Buyer authorisation is required before work can be paid.";
 }
 
 function approvalHeading(state) {
@@ -150,13 +150,13 @@ function approvalHeading(state) {
   if (state.status === "PAYMENT_HELD") return "Payment held";
   if (state.status === "CAPTURING") return "Capture submitted";
   if (state.status === "CAPTURED") return "Captured by PayPal";
-  if (state.status === "VOIDED") return "Authorization voided";
+  if (state.status === "VOIDED") return "Authorisation voided";
   return "Verification required before payment capture";
 }
 
 function approvalCopy(state) {
-  if (state.status === "VERIFIED") return "The buyer can now approve the payment capture, or reject and void the authorization.";
-  if (state.status === "PAYMENT_HELD") return "At least one criterion failed. The authorization remains uncaptured.";
+  if (state.status === "VERIFIED") return "The buyer can now approve the payment capture, or reject and void the authorisation.";
+  if (state.status === "PAYMENT_HELD") return "At least one criterion failed. The authorisation remains uncaptured.";
   if (state.status === "CAPTURING") return "ProofPay has requested capture after explicit buyer approval.";
   if (state.status === "CAPTURED") return "PayPal sent PAYMENT.CAPTURE.COMPLETED and ProofPay verified its signature.";
   if (state.status === "VOIDED") return "The supplier was not paid because the buyer rejected the deliverable.";
@@ -246,7 +246,7 @@ async function drawDemoImage(kind) {
   wrapText(ctx, "Carbon-conscious beans for a brighter morning.", 520, 292, 590, 42);
   ctx.fillStyle = corrected ? "#0b7f67" : "#b42318";
   ctx.font = "700 36px Arial";
-  wrapText(ctx, corrected ? "Reusable cup program included." : "Disposable plastic cups included.", 520, 438, 590, 44);
+  wrapText(ctx, corrected ? "Reusable cup programme included." : "Disposable plastic cups included.", 520, 438, 590, 44);
   ctx.fillStyle = "#18212b";
   ctx.font = "28px Arial";
   ctx.fillText("Sustainable launch campaign", 520, 594);
@@ -255,10 +255,10 @@ async function drawDemoImage(kind) {
   selectedFileName = corrected ? "verdant-volt-corrected.png" : "verdant-volt-failing.png";
   els.previewImage.src = selectedImageDataUrl;
   els.visibleText.value = corrected
-    ? "Verdant Volt Coffee. Brew Better. Waste Less. Carbon-conscious beans for a brighter morning. Reusable cup program included. Sustainable launch campaign."
+    ? "Verdant Volt Coffee. Brew Better. Waste Less. Carbon-conscious beans for a brighter morning. Reusable cup programme included. Sustainable launch campaign."
     : "Verdant Volt Coffee. Brew Better. Waste Less. Carbon-conscious beans for a brighter morning. Disposable plastic cups included. Sustainable launch campaign.";
   els.supplierNotes.value = corrected
-    ? "Corrected promotional image for an eco-friendly coffee brand. The creative removes disposable plastic and uses a reusable cup program."
+    ? "Corrected promotional image for an eco-friendly coffee brand. The creative removes disposable plastic and uses a reusable cup programme."
     : "First promotional image draft. The layout is polished and sustainability is visible, but the image still mentions disposable plastic cups.";
   render(currentState);
 }
